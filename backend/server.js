@@ -1,0 +1,131 @@
+require('dotenv').config();
+const express = require('express');
+const multer = require('multer');
+const cors = require('cors');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
+
+const app = express();
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+
+app.use(cors());
+app.use(express.json());
+
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+
+// Step 1: Use Gemini vision to generate 8 prompts from the uploaded image
+async function generatePrompts(imageBuffer, mimeType, productName) {
+  const model = genAI.getGenerativeModel({ model: 'gemini-2.5-pro' });
+
+  const imagePart = {
+    inlineData: {
+      data: imageBuffer.toString('base64'),
+      mimeType,
+    },
+  };
+
+  const textPart = `You are a professional product photographer and creative director.
+Given this product image and the product name "${productName}", generate exactly 8 highly specific image generation prompts.
+
+First, think carefully about what this product is and exactly how it is used in real life. For example:
+- A car door knob → shown installed on an actual car door, a hand gripping it
+- A water bottle → someone actively drinking from it outdoors
+- Headphones → worn on a person's head while working or commuting
+- A knife → being used to chop vegetables on a cutting board
+
+ECOMMERCE prompts (first 4):
+- Product isolated on clean white or soft gradient background
+- Professional studio lighting, sharp focus, multiple angles (front, side, 45-degree, close-up detail)
+- Commercial product photography look, no people
+
+IN-USE / CONTEXTUAL prompts (last 4):
+- Show the product being used EXACTLY as it is designed to be used in its natural environment
+- Do NOT place it generically "in a room" or "on a table" — it must be actively in use or installed/applied in context
+- Include realistic details: hands using it, the surface/object it attaches to, the environment around it
+- Natural or environmental lighting, photorealistic, high detail
+
+Return ONLY a valid JSON array of exactly 8 strings with no markdown, no explanation, no code block. Example format:
+["prompt one", "prompt two", "prompt three", "prompt four", "prompt five", "prompt six", "prompt seven", "prompt eight"]`;
+
+  const result = await model.generateContent([textPart, imagePart]);
+  const responseText = result.response.text().trim();
+
+  const jsonMatch = responseText.match(/\[[\s\S]*\]/);
+  if (!jsonMatch) throw new Error('Gemini did not return a valid JSON array of prompts.');
+
+  const prompts = JSON.parse(jsonMatch[0]);
+  if (!Array.isArray(prompts) || prompts.length !== 8) {
+    throw new Error(`Expected 8 prompts, got ${prompts.length}`);
+  }
+  return prompts;
+}
+
+// Step 2: Call Gemini image generation via REST API for each prompt
+async function generateImage(prompt, imageBuffer, mimeType, productName) {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image-preview:generateContent?key=${process.env.GEMINI_API_KEY}`;
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{
+        parts: [
+          { text: `Product name: ${productName}\n\n${prompt}` },
+          { inlineData: { mimeType, data: imageBuffer.toString('base64') } },
+        ],
+      }],
+      generationConfig: { responseModalities: ['IMAGE'] },
+    }),
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Image API error (${response.status}): ${errText}`);
+  }
+
+  const data = await response.json();
+
+  const parts = data.candidates?.[0]?.content?.parts;
+  const imagePart = parts?.find(p => p.inlineData?.data);
+  if (!imagePart) {
+    throw new Error('No image data returned from API.');
+  }
+
+  return imagePart.inlineData.data;
+}
+
+app.post('/api/generate', upload.single('image'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No image uploaded.' });
+    if (!req.body.productName) return res.status(400).json({ error: 'Product name is required.' });
+
+    const { productName } = req.body;
+    const { buffer, mimetype } = req.file;
+
+    console.log(`Generating prompts for: ${productName}`);
+    const prompts = await generatePrompts(buffer, mimetype, productName);
+    console.log('Prompts generated:', prompts);
+
+    const images = [];
+    for (let i = 0; i < prompts.length; i++) {
+      const style = i < 4 ? 'ecommerce' : 'lifestyle';
+      console.log(`Generating image ${i + 1}/8 (${style})...`);
+      try {
+        const imageData = await generateImage(prompts[i], buffer, mimetype, productName);
+        images.push({ imageData, prompt: prompts[i], style, index: i });
+      } catch (imgErr) {
+        console.error(`Failed to generate image ${i + 1}:`, imgErr.message);
+        images.push({ imageData: null, prompt: prompts[i], style, index: i, error: imgErr.message });
+      }
+    }
+
+    res.json({ images, prompts });
+  } catch (err) {
+    console.error('Error in /api/generate:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/health', (req, res) => res.json({ status: 'ok' }));
+
+const PORT = process.env.PORT || 3001;
+app.listen(PORT, () => console.log(`Backend running at http://localhost:${PORT}`));
