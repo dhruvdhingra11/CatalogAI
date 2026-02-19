@@ -113,15 +113,17 @@ export default function App() {
         if (done) break;
 
         buffer += decoder.decode(value, { stream: true });
-        // SSE messages are separated by double newline
-        const parts = buffer.split('\n\n');
-        buffer = parts.pop(); // keep incomplete last chunk
+        // Split by single newline — each SSE data: line is one complete event
+        const lines = buffer.split('\n');
+        // Keep the last (potentially incomplete) line in the buffer
+        buffer = lines.pop();
 
-        for (const part of parts) {
-          const line = part.trim();
+        for (const line of lines) {
           if (!line.startsWith('data: ')) continue;
+          const jsonStr = line.slice(6).trim();
+          if (!jsonStr) continue;
           try {
-            const data = JSON.parse(line.slice(6));
+            const data = JSON.parse(jsonStr);
             if (data.type === 'image') {
               setImageSlots(prev => {
                 const next = [...prev];
@@ -136,7 +138,7 @@ export default function App() {
               setLoading(false);
               setShowUpgradeModal(true);
             }
-          } catch (_) { /* incomplete JSON chunk, skip */ }
+          } catch (_) { /* skip malformed lines */ }
         }
       }
     } catch (err) {
