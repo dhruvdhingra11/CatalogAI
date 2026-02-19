@@ -32,12 +32,14 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [loadingMsgIndex, setLoadingMsgIndex] = useState(0);
   const [loadingVisible, setLoadingVisible] = useState(true);
-  const [results, setResults] = useState(null);
+  // imageSlots: array of 8 — null means still pending, object means received
+  const [imageSlots, setImageSlots] = useState(null);
+  const [generatedName, setGeneratedName] = useState('');
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
-  const freeUsed = localStorage.getItem(FREE_KEY) === 'true';
-  const navigate = useNavigate();
   const [error, setError] = useState(null);
   const [dragOver, setDragOver] = useState(false);
+  const freeUsed = localStorage.getItem(FREE_KEY) === 'true';
+  const navigate = useNavigate();
   const fileInputRef = useRef(null);
   const loadingIntervalRef = useRef(null);
 
@@ -66,7 +68,7 @@ export default function App() {
     setImageFile(file);
     setImagePreview(URL.createObjectURL(file));
     setError(null);
-    setResults(null);
+    setImageSlots(null);
   };
 
   const handleDrop = useCallback((e) => {
@@ -85,7 +87,9 @@ export default function App() {
 
     setLoading(true);
     setError(null);
-    setResults(null);
+    setGeneratedName(productName.trim());
+    // Immediately show 8 skeleton slots
+    setImageSlots(Array(8).fill(null));
 
     try {
       const formData = new FormData();
@@ -94,14 +98,49 @@ export default function App() {
 
       const apiBase = import.meta.env.VITE_API_URL || '';
       const response = await fetch(`${apiBase}/api/generate`, { method: 'POST', body: formData });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'Something went wrong.');
-      setResults(data);
-      localStorage.setItem(FREE_KEY, 'true');
-      setShowUpgradeModal(true);
+
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || 'Server error');
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        // SSE messages are separated by double newline
+        const parts = buffer.split('\n\n');
+        buffer = parts.pop(); // keep incomplete last chunk
+
+        for (const part of parts) {
+          const line = part.trim();
+          if (!line.startsWith('data: ')) continue;
+          try {
+            const data = JSON.parse(line.slice(6));
+            if (data.type === 'image') {
+              setImageSlots(prev => {
+                const next = [...prev];
+                next[data.index] = data;
+                return next;
+              });
+            } else if (data.type === 'error') {
+              setError(data.error);
+              setLoading(false);
+            } else if (data.type === 'done') {
+              localStorage.setItem(FREE_KEY, 'true');
+              setLoading(false);
+              setShowUpgradeModal(true);
+            }
+          } catch (_) { /* incomplete JSON chunk, skip */ }
+        }
+      }
     } catch (err) {
       setError(err.message);
-    } finally {
       setLoading(false);
     }
   };
@@ -109,17 +148,18 @@ export default function App() {
   const downloadImage = (imageData, index, style) => {
     const link = document.createElement('a');
     link.href = `data:image/png;base64,${imageData}`;
-    link.download = `${productName.replace(/\s+/g, '_')}_${style}_${index + 1}.png`;
+    link.download = `${generatedName.replace(/\s+/g, '_')}_${style}_${index + 1}.png`;
     link.click();
   };
 
   const downloadAll = () => {
-    results?.images?.forEach((img, i) => {
-      if (img.imageData) setTimeout(() => downloadImage(img.imageData, i, img.style), i * 300);
+    imageSlots?.forEach((img, i) => {
+      if (img?.imageData) setTimeout(() => downloadImage(img.imageData, i, img.style), i * 300);
     });
   };
 
-  const successCount = results?.images?.filter(img => img.imageData).length ?? 0;
+  const successCount = imageSlots?.filter(img => img?.imageData).length ?? 0;
+  const showResults = imageSlots !== null;
 
   return (
     <div className="app">
@@ -157,9 +197,7 @@ export default function App() {
               {imagePreview ? (
                 <>
                   <img src={imagePreview} alt="Product preview" className="preview-image" />
-                  <div className="preview-overlay">
-                    <span>Click to change</span>
-                  </div>
+                  <div className="preview-overlay"><span>Click to change</span></div>
                 </>
               ) : (
                 <div className="dropzone-placeholder">
@@ -208,10 +246,7 @@ export default function App() {
               disabled={loading || !imageFile || !productName.trim()}
             >
               {loading ? (
-                <>
-                  <span className="btn-spinner" />
-                  Generating...
-                </>
+                <><span className="btn-spinner" />Generating...</>
               ) : (
                 <>
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -231,14 +266,18 @@ export default function App() {
           </div>
         </div>
 
-        {results && (
+        {showResults && (
           <section className="results-section">
             <div className="results-header">
               <div>
-                <h2 className="results-title">{productName}</h2>
-                <p className="results-sub">{successCount} of 8 images generated successfully</p>
+                <h2 className="results-title">{generatedName}</h2>
+                <p className="results-sub">
+                  {loading
+                    ? `${successCount} of 8 images ready — generating more...`
+                    : `${successCount} of 8 images generated successfully`}
+                </p>
               </div>
-              {successCount > 0 && (
+              {successCount > 0 && !loading && (
                 <button className="download-all-btn" onClick={downloadAll}>
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3" strokeLinecap="round" strokeLinejoin="round"/>
@@ -254,8 +293,8 @@ export default function App() {
                 <span className="group-desc">Clean studio backgrounds, sharp focus</span>
               </div>
               <div className="image-grid">
-                {results.images.slice(0, 4).map((img, i) => (
-                  <ImageCard key={i} img={img} index={i} productName={productName} onDownload={downloadImage} />
+                {imageSlots.slice(0, 4).map((img, i) => (
+                  <ImageCard key={i} img={img} index={i} onDownload={downloadImage} />
                 ))}
               </div>
             </div>
@@ -266,8 +305,8 @@ export default function App() {
                 <span className="group-desc">Product in real-world, contextual use</span>
               </div>
               <div className="image-grid">
-                {results.images.slice(4).map((img, i) => (
-                  <ImageCard key={i + 4} img={img} index={i + 4} productName={productName} onDownload={downloadImage} />
+                {imageSlots.slice(4).map((img, i) => (
+                  <ImageCard key={i + 4} img={img} index={i + 4} onDownload={downloadImage} />
                 ))}
               </div>
             </div>
@@ -275,13 +314,12 @@ export default function App() {
         )}
       </main>
 
-      {/* Upgrade Modal */}
       {showUpgradeModal && (
         <div className="upgrade-overlay" onClick={() => setShowUpgradeModal(false)}>
           <div className="upgrade-modal" onClick={e => e.stopPropagation()}>
             <div className="upgrade-emoji">🎉</div>
             <h2>You just got 8 professional images — for free.</h2>
-            <p>Ready to do your entire catalog? It's ₹199 per product. No subscription. Buy only when you need it.</p>
+            <p>Ready to do your entire catalog? ₹199 per product. No subscription. Buy only when you need it.</p>
             <div className="upgrade-pricing-row">
               <span className="upgrade-price">₹199</span>
               <span className="upgrade-per">per product · 8 images · credits never expire</span>
@@ -297,7 +335,12 @@ export default function App() {
   );
 }
 
-function ImageCard({ img, index, productName, onDownload }) {
+function ImageCard({ img, index, onDownload }) {
+  // img === null means still generating (skeleton)
+  if (img === null) {
+    return <div className="image-card image-card--skeleton"><div className="skeleton-shimmer" /></div>;
+  }
+
   return (
     <div className={`image-card ${!img.imageData ? 'image-card--error' : ''}`}>
       {img.imageData ? (
@@ -325,7 +368,7 @@ function ImageCard({ img, index, productName, onDownload }) {
         </>
       ) : (
         <div className="image-error">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#555577" strokeWidth="1.5">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ccc" strokeWidth="1.5">
             <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0zM12 9v4M12 17h.01" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
           <p>Failed to generate</p>

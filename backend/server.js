@@ -94,9 +94,18 @@ async function generateImage(prompt, imageBuffer, mimeType, productName) {
 }
 
 app.post('/api/generate', upload.single('image'), async (req, res) => {
+  // SSE headers — keeps connection alive and streams data as it's ready
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no'); // Disable nginx buffering on Railway
+  res.flushHeaders();
+
+  const send = (data) => res.write(`data: ${JSON.stringify(data)}\n\n`);
+
   try {
-    if (!req.file) return res.status(400).json({ error: 'No image uploaded.' });
-    if (!req.body.productName) return res.status(400).json({ error: 'Product name is required.' });
+    if (!req.file) { send({ type: 'error', error: 'No image uploaded.' }); return res.end(); }
+    if (!req.body.productName) { send({ type: 'error', error: 'Product name is required.' }); return res.end(); }
 
     const { productName } = req.body;
     const { buffer, mimetype } = req.file;
@@ -104,25 +113,27 @@ app.post('/api/generate', upload.single('image'), async (req, res) => {
     console.log(`Generating prompts for: ${productName}`);
     const prompts = await generatePrompts(buffer, mimetype, productName);
     console.log('Prompts generated:', prompts);
+    send({ type: 'prompts', prompts });
 
-    const images = [];
     for (let i = 0; i < prompts.length; i++) {
       const style = i < 4 ? 'ecommerce' : 'lifestyle';
       console.log(`Generating image ${i + 1}/8 (${style})...`);
       try {
         const imageData = await generateImage(prompts[i], buffer, mimetype, productName);
-        images.push({ imageData, prompt: prompts[i], style, index: i });
+        send({ type: 'image', imageData, prompt: prompts[i], style, index: i });
       } catch (imgErr) {
         console.error(`Failed to generate image ${i + 1}:`, imgErr.message);
-        images.push({ imageData: null, prompt: prompts[i], style, index: i, error: imgErr.message });
+        send({ type: 'image', imageData: null, prompt: prompts[i], style, index: i, error: imgErr.message });
       }
     }
 
-    res.json({ images, prompts });
+    send({ type: 'done' });
   } catch (err) {
     console.error('Error in /api/generate:', err.message);
-    res.status(500).json({ error: err.message });
+    send({ type: 'error', error: err.message });
   }
+
+  res.end();
 });
 
 app.get('/health', (req, res) => res.json({ status: 'ok' }));
