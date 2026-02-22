@@ -1,55 +1,89 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
+import { signInWithCustomToken } from 'firebase/auth';
 import { useAuth } from '../context/AuthContext';
+import { auth } from '../lib/firebase';
 import './Auth.css';
 
-function getErrorMessage(code) {
-  switch (code) {
-    case 'auth/user-not-found':
-    case 'auth/wrong-password':
-    case 'auth/invalid-credential':
-      return 'Invalid email or password.';
-    case 'auth/email-already-in-use':
-      return 'This email is already registered. Please log in.';
-    case 'auth/weak-password':
-      return 'Password must be at least 6 characters.';
-    case 'auth/invalid-email':
-      return 'Please enter a valid email address.';
-    case 'auth/too-many-requests':
-      return 'Too many attempts. Please wait a moment and try again.';
-    case 'auth/popup-closed-by-user':
-    case 'auth/cancelled-popup-request':
-      return '';
-    default:
-      return 'Something went wrong. Please try again.';
-  }
-}
+const apiBase = import.meta.env.VITE_API_URL || '';
 
 export default function Auth() {
-  const [tab, setTab] = useState('login');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [tab, setTab]             = useState('login');
+  const [email, setEmail]         = useState('');
+  const [otpStep, setOtpStep]     = useState(false);
+  const [otp, setOtp]             = useState('');
+  const [error, setError]         = useState('');
+  const [loading, setLoading]     = useState(false);
+  const [resendTimer, setResendTimer] = useState(0);
 
-  const { signup, login, googleLogin } = useAuth();
-  const navigate = useNavigate();
-  const location = useLocation();
-  const from = location.state?.from || '/dashboard';
+  const { googleLogin } = useAuth();
+  const navigate  = useNavigate();
+  const location  = useLocation();
+  const from      = location.state?.from || '/dashboard';
 
-  const handleSubmit = async (e) => {
+  // Resend countdown
+  useEffect(() => {
+    if (resendTimer <= 0) return;
+    const t = setTimeout(() => setResendTimer(r => r - 1), 1000);
+    return () => clearTimeout(t);
+  }, [resendTimer]);
+
+  const sendOtp = async () => {
+    const res  = await fetch(`${apiBase}/api/auth/send-otp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to send code.');
+  };
+
+  const handleSendOtp = async (e) => {
     e.preventDefault();
     setError('');
     setLoading(true);
     try {
-      if (tab === 'login') {
-        await login(email, password);
-      } else {
-        await signup(email, password);
-      }
+      await sendOtp();
+      setOtpStep(true);
+      setResendTimer(30);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVerifyOtp = async (e) => {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+    try {
+      const res  = await fetch(`${apiBase}/api/auth/verify-otp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, code: otp }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Verification failed.');
+      await signInWithCustomToken(auth, data.token);
       navigate(from, { replace: true });
     } catch (err) {
-      setError(err.code ? getErrorMessage(err.code) : (err.message || 'Something went wrong.'));
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResend = async () => {
+    if (resendTimer > 0) return;
+    setError('');
+    setLoading(true);
+    try {
+      await sendOtp();
+      setOtp('');
+      setResendTimer(30);
+    } catch (err) {
+      setError(err.message);
     } finally {
       setLoading(false);
     }
@@ -60,15 +94,66 @@ export default function Auth() {
     setLoading(true);
     try {
       await googleLogin();
-      // Page will redirect to Google — no further action needed here.
-      // onAuthStateChanged handles navigation when user returns.
+      // signInWithRedirect — page will redirect, no further action needed
     } catch (err) {
-      const msg = err.code ? getErrorMessage(err.code) : err.message;
-      if (msg) setError(msg);
+      if (err.message) setError(err.message);
       setLoading(false);
     }
   };
 
+  // ── OTP verification screen ──────────────────────────────────────────────
+  if (otpStep) {
+    return (
+      <div className="auth-page">
+        <nav className="auth-nav">
+          <Link to="/" className="auth-logo">
+            <span className="auth-logo-mark">✦</span>
+            <span>SellerStudio</span>
+          </Link>
+        </nav>
+        <div className="auth-container">
+          <div className="auth-card">
+            <span className="auth-otp-icon">📧</span>
+            <h1 className="auth-title">Check your email</h1>
+            <p className="auth-sub">
+              We sent a 6-digit code to <strong>{email}</strong>. Enter it below.
+            </p>
+            <form onSubmit={handleVerifyOtp} className="auth-form">
+              <div className="auth-field">
+                <label>6-digit code</label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  placeholder="• • • • • •"
+                  value={otp}
+                  onChange={e => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  autoFocus
+                  required
+                />
+              </div>
+              {error && <div className="auth-error">{error}</div>}
+              <button type="submit" className="auth-submit" disabled={loading || otp.length < 6}>
+                {loading ? 'Verifying...' : 'Verify & Sign In'}
+              </button>
+            </form>
+            <p className="auth-switch">
+              {resendTimer > 0 ? (
+                <span>Resend code in {resendTimer}s</span>
+              ) : (
+                <button type="button" onClick={handleResend} disabled={loading}>Resend code</button>
+              )}
+              {' · '}
+              <button type="button" onClick={() => { setOtpStep(false); setOtp(''); setError(''); }}>
+                Change email
+              </button>
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Email entry screen ───────────────────────────────────────────────────
   return (
     <div className="auth-page">
       <nav className="auth-nav">
@@ -99,9 +184,7 @@ export default function Auth() {
             {tab === 'login' ? 'Welcome back' : 'Create your account'}
           </h1>
           <p className="auth-sub">
-            {tab === 'login'
-              ? 'Log in to access your saved product images.'
-              : 'Sign up to save images and manage your credits.'}
+            Enter your email and we'll send you a login code. No password needed.
           </p>
 
           <button className="auth-google-btn" onClick={handleGoogle} disabled={loading}>
@@ -116,7 +199,7 @@ export default function Auth() {
 
           <div className="auth-divider"><span>or</span></div>
 
-          <form onSubmit={handleSubmit} className="auth-form">
+          <form onSubmit={handleSendOtp} className="auth-form">
             <div className="auth-field">
               <label>Email</label>
               <input
@@ -128,20 +211,9 @@ export default function Auth() {
                 autoComplete="email"
               />
             </div>
-            <div className="auth-field">
-              <label>Password</label>
-              <input
-                type="password"
-                placeholder={tab === 'signup' ? 'Min. 6 characters' : '••••••••'}
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                required
-                autoComplete={tab === 'login' ? 'current-password' : 'new-password'}
-              />
-            </div>
             {error && <div className="auth-error">{error}</div>}
             <button type="submit" className="auth-submit" disabled={loading}>
-              {loading ? 'Please wait...' : (tab === 'login' ? 'Log In' : 'Create Account')}
+              {loading ? 'Sending code...' : 'Send Login Code →'}
             </button>
           </form>
 
