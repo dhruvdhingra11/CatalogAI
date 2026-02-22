@@ -1,7 +1,11 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { ref, uploadString, getDownloadURL } from 'firebase/storage';
+import { useAuth } from './context/AuthContext';
+import { db, storage } from './lib/firebase';
 
-const FREE_KEY = 'catalogai_free_used';
+const freeKey = (uid) => `sellerstudio_free_used_${uid}`;
 
 const LOADING_MESSAGES = [
   'Something interesting is brewing...',
@@ -22,8 +26,30 @@ const TIPS = [
   { label: 'Be specific', example: '"Matte Black Ceramic Coffee Mug" not "mug"' },
   { label: 'Include material', example: '"Full-Grain Leather Bifold Wallet"' },
   { label: 'Mention key feature', example: '"Wireless Noise-Cancelling Over-Ear Headphones"' },
-  { label: 'Keep it under 6 words', example: 'Concise names yield sharper results' },
 ];
+
+async function saveGenerationToFirebase(slots, productName, uid) {
+  if (!db || !storage) throw new Error('Firebase not initialized. Check your .env config.');
+
+  const genId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const imageUrls = new Array(slots.length).fill(null);
+
+  await Promise.all(
+    slots.map(async (slot, i) => {
+      if (!slot?.imageData) return;
+      const storageRef = ref(storage, `generations/${uid}/${genId}/${i}.png`);
+      await uploadString(storageRef, slot.imageData, 'base64', { contentType: 'image/png' });
+      imageUrls[i] = await getDownloadURL(storageRef);
+    })
+  );
+
+  await addDoc(collection(db, 'generations'), {
+    userId: uid,
+    productName,
+    imageUrls,
+    createdAt: serverTimestamp(),
+  });
+}
 
 export default function App() {
   const [productName, setProductName] = useState('');
@@ -32,16 +58,28 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [loadingMsgIndex, setLoadingMsgIndex] = useState(0);
   const [loadingVisible, setLoadingVisible] = useState(true);
-  // imageSlots: array of 8 — null means still pending, object means received
   const [imageSlots, setImageSlots] = useState(null);
   const [generatedName, setGeneratedName] = useState('');
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [error, setError] = useState(null);
   const [dragOver, setDragOver] = useState(false);
-  const freeUsed = localStorage.getItem(FREE_KEY) === 'true';
+  const [saveStatus, setSaveStatus] = useState(null); // null | 'saving' | 'saved' | 'error'
+  const [saveError, setSaveError] = useState('');
   const navigate = useNavigate();
   const fileInputRef = useRef(null);
   const loadingIntervalRef = useRef(null);
+  const slotsAccumRef = useRef([]);
+
+  const { user } = useAuth();
+  const [freeUsed, setFreeUsed] = useState(false);
+
+  useEffect(() => {
+    if (user) {
+      setFreeUsed(localStorage.getItem(freeKey(user.uid)) === 'true');
+    } else {
+      setFreeUsed(false);
+    }
+  }, [user]);
 
   useEffect(() => {
     if (loading) {
@@ -81,6 +119,7 @@ export default function App() {
   const handleDragLeave = () => setDragOver(false);
 
   const handleGenerate = async () => {
+    if (!user) { navigate('/login', { state: { from: '/tool' } }); return; }
     if (freeUsed) { navigate('/pricing'); return; }
     if (!imageFile) return setError('Please upload a product image.');
     if (!productName.trim()) return setError('Please enter a product name.');
@@ -88,7 +127,7 @@ export default function App() {
     setLoading(true);
     setError(null);
     setGeneratedName(productName.trim());
-    // Immediately show 8 skeleton slots
+    slotsAccumRef.current = Array(8).fill(null);
     setImageSlots(Array(8).fill(null));
 
     try {
@@ -113,9 +152,7 @@ export default function App() {
         if (done) break;
 
         buffer += decoder.decode(value, { stream: true });
-        // Split by single newline — each SSE data: line is one complete event
         const lines = buffer.split('\n');
-        // Keep the last (potentially incomplete) line in the buffer
         buffer = lines.pop();
 
         for (const line of lines) {
@@ -125,6 +162,7 @@ export default function App() {
           try {
             const data = JSON.parse(jsonStr);
             if (data.type === 'image') {
+              slotsAccumRef.current[data.index] = data;
               setImageSlots(prev => {
                 const next = [...prev];
                 next[data.index] = data;
@@ -134,9 +172,19 @@ export default function App() {
               setError(data.error);
               setLoading(false);
             } else if (data.type === 'done') {
-              localStorage.setItem(FREE_KEY, 'true');
+              localStorage.setItem(freeKey(user.uid), 'true');
+              setFreeUsed(true);
               setLoading(false);
               setShowUpgradeModal(true);
+              setSaveStatus('saving');
+              setSaveError('');
+              saveGenerationToFirebase(slotsAccumRef.current, productName.trim(), user.uid)
+                .then(() => setSaveStatus('saved'))
+                .catch(err => {
+                  console.error('Firebase save error:', err);
+                  setSaveStatus('error');
+                  setSaveError(err.message);
+                });
             }
           } catch (_) { /* skip malformed lines */ }
         }
@@ -169,14 +217,19 @@ export default function App() {
       <nav className="tool-nav">
         <Link to="/" className="tool-nav-logo">
           <span className="tool-logo-mark">✦</span>
-          <span>CatalogAI</span>
+          <span>SellerStudio</span>
         </Link>
         <div className="tool-nav-right">
-          {freeUsed ? (
-            <Link to="/pricing" className="tool-nav-upgrade">Buy Credits — ₹199/product →</Link>
+          {user ? (
+            <Link to="/dashboard" className="tool-nav-link">Dashboard</Link>
+          ) : (
+            <Link to="/login" className="tool-nav-link">Login</Link>
+          )}
+          {user && (freeUsed ? (
+            <Link to="/pricing" className="tool-nav-upgrade">Buy Credits — ₹99/product →</Link>
           ) : (
             <span className="tool-nav-free">🎁 1 free generation remaining</span>
-          )}
+          ))}
         </div>
       </nav>
 
@@ -245,7 +298,7 @@ export default function App() {
             <button
               className="generate-btn"
               onClick={handleGenerate}
-              disabled={loading || !imageFile || !productName.trim()}
+              disabled={loading || !imageFile || !productName.trim() || freeUsed}
             >
               {loading ? (
                 <><span className="btn-spinner" />Generating...</>
@@ -320,16 +373,22 @@ export default function App() {
         <div className="upgrade-overlay" onClick={() => setShowUpgradeModal(false)}>
           <div className="upgrade-modal" onClick={e => e.stopPropagation()}>
             <div className="upgrade-emoji">🎉</div>
-            <h2>You just got 8 professional images — for free.</h2>
-            <p>Ready to do your entire catalog? ₹199 per product. No subscription. Buy only when you need it.</p>
+            <h2>Your 8 images are ready!</h2>
+            {saveStatus === 'saving' && <p style={{color:'#7c6af5'}}>⏳ Saving images to your account...</p>}
+            {saveStatus === 'saved' && <p style={{color:'#22c55e'}}>✓ Images saved to your account.</p>}
+            {saveStatus === 'error' && <p style={{color:'#ef4444'}}>⚠️ Could not save: {saveError}</p>}
+            {!saveStatus && <p>Ready to do more products?</p>}
             <div className="upgrade-pricing-row">
-              <span className="upgrade-price">₹199</span>
+              <span className="upgrade-price">₹99</span>
               <span className="upgrade-per">per product · 8 images · credits never expire</span>
             </div>
             <Link to="/pricing" className="upgrade-btn-primary">Buy Credits →</Link>
-            <button className="upgrade-btn-ghost" onClick={() => setShowUpgradeModal(false)}>
-              Download my images first
-            </button>
+            <div className="upgrade-actions-row">
+              <Link to="/dashboard" className="upgrade-btn-secondary" onClick={() => setShowUpgradeModal(false)}>View Dashboard</Link>
+              <button className="upgrade-btn-ghost" onClick={() => { downloadAll(); setShowUpgradeModal(false); }}>
+                Download all images
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -338,7 +397,6 @@ export default function App() {
 }
 
 function ImageCard({ img, index, onDownload }) {
-  // img === null means still generating (skeleton)
   if (img === null) {
     return <div className="image-card image-card--skeleton"><div className="skeleton-shimmer" /></div>;
   }

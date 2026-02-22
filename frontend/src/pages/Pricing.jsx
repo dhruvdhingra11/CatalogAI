@@ -43,24 +43,24 @@ const PACKS = [
   {
     name: 'Starter',
     products: 1,
-    price: 199,
-    pricePerProduct: 199,
+    price: 99,
+    pricePerProduct: 99,
     highlight: false,
     badge: null,
   },
   {
     name: 'Growth',
     products: 10,
-    price: 1499,
-    pricePerProduct: 150,
+    price: 790,
+    pricePerProduct: 79,
     highlight: true,
     badge: 'Most Popular',
   },
   {
     name: 'Scale',
     products: 30,
-    price: 3999,
-    pricePerProduct: 133,
+    price: 1990,
+    pricePerProduct: 66,
     highlight: false,
     badge: 'Best Value',
   },
@@ -79,7 +79,7 @@ export default function Pricing() {
         <div className="l-nav-inner">
           <Link to="/" className="l-logo" style={{ textDecoration: 'none' }}>
             <span className="l-logo-mark">✦</span>
-            <span>CatalogAI</span>
+            <span>SellerStudio</span>
           </Link>
           <div className="l-nav-links">
             <Link to="/">Home</Link>
@@ -114,7 +114,7 @@ export default function Pricing() {
                 <div className="p-pack-per">₹{pack.pricePerProduct}/product</div>
                 {pack.products > 1 && (
                   <div className="p-pack-saving">
-                    Save ₹{((199 - pack.pricePerProduct) * pack.products).toLocaleString('en-IN')} vs single
+                    Save ₹{((99 - pack.pricePerProduct) * pack.products).toLocaleString('en-IN')} vs single
                   </div>
                 )}
                 <div className="p-pack-divider"/>
@@ -170,10 +170,10 @@ export default function Pricing() {
             <div className="p-compare-row p-compare-header">
               <div/>
               <div>Traditional Photoshoot</div>
-              <div className="p-compare-our">CatalogAI</div>
+              <div className="p-compare-our">SellerStudio</div>
             </div>
             {[
-              ['Cost per product', '₹5,000 – ₹20,000', '₹199'],
+              ['Cost per product', '₹5,000 – ₹20,000', '₹99'],
               ['Time to get images', '3–5 days', '~4 minutes'],
               ['Images per product', '10–15', '8 catalog-ready'],
               ['Ecommerce + Lifestyle', 'Extra cost', 'Included'],
@@ -217,13 +217,13 @@ export default function Pricing() {
         <div className="l-footer-inner">
           <div className="l-logo">
             <span className="l-logo-mark">✦</span>
-            <span>CatalogAI</span>
+            <span>SellerStudio</span>
           </div>
           <div className="l-footer-links">
             <Link to="/">Home</Link>
             <Link to="/tool">Try Free</Link>
           </div>
-          <p className="l-footer-copy">© 2026 CatalogAI. Built for marketplace sellers.</p>
+          <p className="l-footer-copy">© 2026 SellerStudio. Built for marketplace sellers.</p>
         </div>
       </footer>
     </div>

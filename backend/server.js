@@ -69,7 +69,19 @@ async function generateImage(prompt, imageBuffer, mimeType, productName) {
     body: JSON.stringify({
       contents: [{
         parts: [
-          { text: `Product name: ${productName}\n\n${prompt}` },
+          {
+            text: `You are an AI product photographer. I am providing a reference image of a SPECIFIC real product.
+
+YOUR TASK: Generate a new photorealistic product image following these rules:
+
+1. PRODUCT FIDELITY (most important): The product in your output MUST be the EXACT same product shown in the reference image. Reproduce its precise colors, shape, design, branding, logo, texture, and physical appearance. Do NOT invent a generic or similar-looking product — use the reference image as the visual source of truth.
+
+2. SCENE: ${prompt}
+
+3. Product name for context only: ${productName}
+
+The reference image is attached. Study it carefully and reproduce that exact product in the described scene.`,
+          },
           { inlineData: { mimeType, data: imageBuffer.toString('base64') } },
         ],
       }],
@@ -84,10 +96,18 @@ async function generateImage(prompt, imageBuffer, mimeType, productName) {
 
   const data = await response.json();
 
-  const parts = data.candidates?.[0]?.content?.parts;
+  const candidate = data.candidates?.[0];
+  const parts = candidate?.content?.parts;
   const imagePart = parts?.find(p => p.inlineData?.data);
+
   if (!imagePart) {
-    throw new Error('No image data returned from API.');
+    const finishReason = candidate?.finishReason || 'unknown';
+    const textPart = parts?.find(p => p.text);
+    const detail = textPart
+      ? `Model returned text: "${textPart.text.slice(0, 200)}"`
+      : `finishReason=${finishReason}, parts=${JSON.stringify(parts ?? null)}`;
+    console.error('No image in API response:', detail);
+    throw new Error(`No image data returned (${finishReason}). ${textPart ? 'Model returned text instead of image.' : ''}`);
   }
 
   return imagePart.inlineData.data;
@@ -115,15 +135,31 @@ app.post('/api/generate', upload.single('image'), async (req, res) => {
     console.log('Prompts generated:', prompts);
     send({ type: 'prompts', prompts });
 
+    // Brief warm-up pause — image generation API needs a moment after the prompts call
+    await new Promise(r => setTimeout(r, 2000));
+
     for (let i = 0; i < prompts.length; i++) {
       const style = i < 4 ? 'ecommerce' : 'lifestyle';
       console.log(`Generating image ${i + 1}/8 (${style})...`);
-      try {
-        const imageData = await generateImage(prompts[i], buffer, mimetype, productName);
+      let lastErr;
+      let imageData = null;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          imageData = await generateImage(prompts[i], buffer, mimetype, productName);
+          break;
+        } catch (imgErr) {
+          lastErr = imgErr;
+          if (attempt < 2) {
+            console.log(`Retrying image ${i + 1} (attempt ${attempt + 2}/3)...`);
+            await new Promise(r => setTimeout(r, 5000));
+          }
+        }
+      }
+      if (imageData) {
         send({ type: 'image', imageData, prompt: prompts[i], style, index: i });
-      } catch (imgErr) {
-        console.error(`Failed to generate image ${i + 1}:`, imgErr.message);
-        send({ type: 'image', imageData: null, prompt: prompts[i], style, index: i, error: imgErr.message });
+      } else {
+        console.error(`Failed to generate image ${i + 1}:`, lastErr.message);
+        send({ type: 'image', imageData: null, prompt: prompts[i], style, index: i, error: lastErr.message });
       }
     }
 
