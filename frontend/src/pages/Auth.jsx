@@ -1,9 +1,6 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { doc, setDoc } from 'firebase/firestore';
-import { RecaptchaVerifier, signInWithPhoneNumber, EmailAuthProvider, linkWithCredential } from 'firebase/auth';
 import { useAuth } from '../context/AuthContext';
-import { db, auth } from '../lib/firebase';
 import './Auth.css';
 
 function getErrorMessage(code) {
@@ -13,21 +10,13 @@ function getErrorMessage(code) {
     case 'auth/invalid-credential':
       return 'Invalid email or password.';
     case 'auth/email-already-in-use':
-      return 'This email is already registered.';
+      return 'This email is already registered. Please log in.';
     case 'auth/weak-password':
       return 'Password must be at least 6 characters.';
     case 'auth/invalid-email':
       return 'Please enter a valid email address.';
-    case 'auth/invalid-phone-number':
-      return 'Invalid phone number. Use format: +91 XXXXX XXXXX';
     case 'auth/too-many-requests':
       return 'Too many attempts. Please wait a moment and try again.';
-    case 'auth/invalid-verification-code':
-      return 'Incorrect OTP. Please try again.';
-    case 'auth/code-expired':
-      return 'OTP has expired. Please request a new one.';
-    case 'auth/credential-already-in-use':
-      return 'This phone number is already linked to another account.';
     case 'auth/popup-closed-by-user':
     case 'auth/cancelled-popup-request':
       return '';
@@ -36,100 +25,17 @@ function getErrorMessage(code) {
   }
 }
 
-function formatPhone(raw) {
-  const digits = raw.replace(/\D/g, '');
-  if (digits.length === 10) return '+91' + digits;
-  if (digits.startsWith('91') && digits.length === 12) return '+' + digits;
-  if (raw.trim().startsWith('+')) return raw.replace(/\s+/g, '');
-  return '+91' + digits;
-}
-
 export default function Auth() {
   const [tab, setTab] = useState('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [phone, setPhone] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // OTP step
-  const [otpStep, setOtpStep] = useState(false);
-  const [otp, setOtp] = useState('');
-  const [confirmationResult, setConfirmationResult] = useState(null);
-  const [resendTimer, setResendTimer] = useState(0);
-
-  const recaptchaContainerRef = useRef(null);
-  const appVerifierRef = useRef(null);
-  const isLinkingRef = useRef(false);
-
-  const { user, login, googleLogin } = useAuth();
+  const { signup, login, googleLogin } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const from = location.state?.from || '/dashboard';
-
-  useEffect(() => {
-    if (user && !isLinkingRef.current) navigate(from, { replace: true });
-  }, [user]);
-
-  // Initialise visible reCAPTCHA as soon as the signup tab is shown
-  useEffect(() => {
-    if (tab !== 'signup' || !auth) return;
-
-    const timer = setTimeout(() => {
-      if (appVerifierRef.current || !recaptchaContainerRef.current) return;
-      try {
-        appVerifierRef.current = new RecaptchaVerifier(auth, recaptchaContainerRef.current, {
-          size: 'normal',
-          'expired-callback': () => {
-            // Token expired — clear so it gets recreated on next attempt
-            try { appVerifierRef.current.clear(); } catch (_) {}
-            appVerifierRef.current = null;
-          },
-        });
-        appVerifierRef.current.render().catch(console.error);
-      } catch (err) {
-        console.error('RecaptchaVerifier init error:', err);
-      }
-    }, 100);
-
-    return () => {
-      clearTimeout(timer);
-    };
-  }, [tab]);
-
-  // Clean up verifier when leaving signup tab or unmounting
-  useEffect(() => {
-    if (tab === 'signup') return;
-    if (appVerifierRef.current) {
-      try { appVerifierRef.current.clear(); } catch (_) {}
-      appVerifierRef.current = null;
-    }
-  }, [tab]);
-
-  useEffect(() => {
-    return () => {
-      if (appVerifierRef.current) {
-        try { appVerifierRef.current.clear(); } catch (_) {}
-        appVerifierRef.current = null;
-      }
-    };
-  }, []);
-
-  // Countdown timer for resend
-  useEffect(() => {
-    if (resendTimer <= 0) return;
-    const t = setTimeout(() => setResendTimer(r => r - 1), 1000);
-    return () => clearTimeout(t);
-  }, [resendTimer]);
-
-  async function sendOtp() {
-    if (!appVerifierRef.current) {
-      throw new Error('reCAPTCHA not ready. Please complete the checkbox above first.');
-    }
-    const result = await signInWithPhoneNumber(auth, formatPhone(phone), appVerifierRef.current);
-    setConfirmationResult(result);
-    setResendTimer(30);
-  }
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -138,81 +44,12 @@ export default function Auth() {
     try {
       if (tab === 'login') {
         await login(email, password);
-        navigate(from, { replace: true });
       } else {
-        if (!phone.trim()) {
-          setError('Mobile number is required to create an account.');
-          setLoading(false);
-          return;
-        }
-        await sendOtp();
-        setOtpStep(true);
-        setLoading(false);
+        await signup(email, password);
       }
-    } catch (err) {
-      console.error('Send OTP error:', err.code, err.message);
-      setError(getErrorMessage(err.code) || err.message);
-      setLoading(false);
-    }
-  };
-
-  const handleVerifyOtp = async (e) => {
-    e.preventDefault();
-    if (!otp.trim() || !confirmationResult) return;
-    setError('');
-    setLoading(true);
-    try {
-      isLinkingRef.current = true;
-
-      // Confirm OTP → creates phone-auth user
-      const phoneUserCred = await confirmationResult.confirm(otp);
-
-      // Link email + password to the phone user
-      const emailCred = EmailAuthProvider.credential(email, password);
-      await linkWithCredential(phoneUserCred.user, emailCred);
-
-      // Save profile to Firestore
-      if (db) {
-        await setDoc(doc(db, 'users', phoneUserCred.user.uid), {
-          phone: phone.trim(),
-          email,
-        }, { merge: true });
-      }
-
-      isLinkingRef.current = false;
       navigate(from, { replace: true });
     } catch (err) {
-      isLinkingRef.current = false;
-      console.error('Verify OTP error:', err.code, err.message);
-      setError(getErrorMessage(err.code) || err.message);
-      setLoading(false);
-    }
-  };
-
-  const handleResend = async () => {
-    if (resendTimer > 0) return;
-    setError('');
-    setLoading(true);
-    try {
-      // Reset verifier so reCAPTCHA can be solved again
-      if (appVerifierRef.current) {
-        try { appVerifierRef.current.clear(); } catch (_) {}
-        appVerifierRef.current = null;
-      }
-      if (recaptchaContainerRef.current) {
-        appVerifierRef.current = new RecaptchaVerifier(auth, recaptchaContainerRef.current, {
-          size: 'normal',
-          'expired-callback': () => {
-            try { appVerifierRef.current.clear(); } catch (_) {}
-            appVerifierRef.current = null;
-          },
-        });
-        await appVerifierRef.current.render();
-      }
-      await sendOtp();
-      setOtp('');
-    } catch (err) {
-      setError(getErrorMessage(err.code) || err.message);
+      setError(err.code ? getErrorMessage(err.code) : (err.message || 'Something went wrong.'));
     } finally {
       setLoading(false);
     }
@@ -223,68 +60,15 @@ export default function Auth() {
     setLoading(true);
     try {
       await googleLogin();
-      navigate(from, { replace: true });
+      // Page will redirect to Google — no further action needed here.
+      // onAuthStateChanged handles navigation when user returns.
     } catch (err) {
-      const msg = getErrorMessage(err.code);
+      const msg = err.code ? getErrorMessage(err.code) : err.message;
       if (msg) setError(msg);
-    } finally {
       setLoading(false);
     }
   };
 
-  // ── OTP verification screen ──────────────────────────────────────────────
-  if (otpStep) {
-    return (
-      <div className="auth-page">
-        <nav className="auth-nav">
-          <Link to="/" className="auth-logo">
-            <span className="auth-logo-mark">✦</span>
-            <span>SellerStudio</span>
-          </Link>
-        </nav>
-        <div className="auth-container">
-          <div className="auth-card">
-            <div className="auth-otp-icon">📱</div>
-            <h1 className="auth-title">Verify your number</h1>
-            <p className="auth-sub">
-              OTP sent to <strong>{phone}</strong>. Enter it below to complete signup.
-            </p>
-            <form onSubmit={handleVerifyOtp} className="auth-form">
-              <div className="auth-field">
-                <label>6-digit OTP</label>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  placeholder="• • • • • •"
-                  value={otp}
-                  onChange={e => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                  autoFocus
-                  required
-                />
-              </div>
-              {error && <div className="auth-error">{error}</div>}
-              <button type="submit" className="auth-submit" disabled={loading || otp.length < 6}>
-                {loading ? 'Verifying...' : 'Verify & Create Account'}
-              </button>
-            </form>
-            <p className="auth-switch">
-              {resendTimer > 0 ? (
-                <span>Resend OTP in {resendTimer}s</span>
-              ) : (
-                <button type="button" onClick={handleResend} disabled={loading}>Resend OTP</button>
-              )}
-              {' · '}
-              <button type="button" onClick={() => { setOtpStep(false); setOtp(''); setError(''); }}>
-                Change number
-              </button>
-            </p>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // ── Main login / signup screen ───────────────────────────────────────────
   return (
     <div className="auth-page">
       <nav className="auth-nav">
@@ -299,7 +83,7 @@ export default function Auth() {
           <div className="auth-tabs">
             <button
               className={`auth-tab ${tab === 'login' ? 'active' : ''}`}
-              onClick={() => { setTab('login'); setError(''); setPhone(''); }}
+              onClick={() => { setTab('login'); setError(''); }}
             >
               Log In
             </button>
@@ -355,27 +139,9 @@ export default function Auth() {
                 autoComplete={tab === 'login' ? 'current-password' : 'new-password'}
               />
             </div>
-            {tab === 'signup' && (
-              <>
-                <div className="auth-field">
-                  <label>Mobile Number <span style={{ color: '#ef4444' }}>*</span></label>
-                  <input
-                    type="tel"
-                    placeholder="+91 98765 43210"
-                    value={phone}
-                    onChange={e => setPhone(e.target.value)}
-                    autoComplete="tel"
-                    required
-                  />
-                </div>
-                <div className="auth-recaptcha" ref={recaptchaContainerRef} />
-              </>
-            )}
             {error && <div className="auth-error">{error}</div>}
             <button type="submit" className="auth-submit" disabled={loading}>
-              {loading
-                ? (tab === 'signup' ? 'Sending OTP...' : 'Please wait...')
-                : (tab === 'login' ? 'Log In' : 'Send OTP →')}
+              {loading ? 'Please wait...' : (tab === 'login' ? 'Log In' : 'Create Account')}
             </button>
           </form>
 
