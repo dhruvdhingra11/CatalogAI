@@ -7,6 +7,52 @@ import { db, storage } from './lib/firebase';
 
 const freeKey = (uid) => `sellerstudio_free_used_${uid}`;
 
+const PENDING_KEY = 'sellerstudio_pending_generation';
+
+function savePendingState(file, name) {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        sessionStorage.setItem(PENDING_KEY, JSON.stringify({
+          productName: name,
+          imageDataUrl: e.target.result,
+          imageName: file.name,
+          imageMimeType: file.type,
+        }));
+      } catch (_) {
+        // sessionStorage full (large image) — save only the name
+        try {
+          sessionStorage.setItem(PENDING_KEY, JSON.stringify({ productName: name }));
+        } catch (_) {}
+      }
+      resolve();
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function loadPendingState() {
+  try {
+    const raw = sessionStorage.getItem(PENDING_KEY);
+    if (!raw) return null;
+    sessionStorage.removeItem(PENDING_KEY);
+    const saved = JSON.parse(raw);
+    if (saved.imageDataUrl) {
+      const arr = saved.imageDataUrl.split(',');
+      const bstr = atob(arr[1] ?? arr[0]);
+      const u8 = new Uint8Array(bstr.length);
+      for (let i = 0; i < bstr.length; i++) u8[i] = bstr.charCodeAt(i);
+      const file = new File([u8], saved.imageName || 'product.png', { type: saved.imageMimeType || 'image/png' });
+      return { productName: saved.productName, file, preview: saved.imageDataUrl };
+    }
+    return { productName: saved.productName, file: null, preview: null };
+  } catch (_) {
+    sessionStorage.removeItem(PENDING_KEY);
+    return null;
+  }
+}
+
 const LOADING_MESSAGES = [
   'Something interesting is brewing...',
   'Teaching AI what your product looks like...',
@@ -65,6 +111,7 @@ export default function App() {
   const [dragOver, setDragOver] = useState(false);
   const [saveStatus, setSaveStatus] = useState(null); // null | 'saving' | 'saved' | 'error'
   const [saveError, setSaveError] = useState('');
+  const [queuePosition, setQueuePosition] = useState(null);
   const navigate = useNavigate();
   const fileInputRef = useRef(null);
   const loadingIntervalRef = useRef(null);
@@ -76,6 +123,12 @@ export default function App() {
   useEffect(() => {
     if (user) {
       setFreeUsed(localStorage.getItem(freeKey(user.uid)) === 'true');
+      // Restore any form state saved before the login redirect
+      const pending = loadPendingState();
+      if (pending) {
+        if (pending.productName) setProductName(pending.productName);
+        if (pending.file)        { setImageFile(pending.file); setImagePreview(pending.preview); }
+      }
     } else {
       setFreeUsed(false);
     }
@@ -119,13 +172,18 @@ export default function App() {
   const handleDragLeave = () => setDragOver(false);
 
   const handleGenerate = async () => {
-    if (!user) { navigate('/login', { state: { from: '/tool' } }); return; }
+    if (!user) {
+      await savePendingState(imageFile, productName.trim());
+      navigate('/login', { state: { from: '/tool' } });
+      return;
+    }
     if (freeUsed) { navigate('/pricing'); return; }
     if (!imageFile) return setError('Please upload a product image.');
     if (!productName.trim()) return setError('Please enter a product name.');
 
     setLoading(true);
     setError(null);
+    setQueuePosition(null);
     setGeneratedName(productName.trim());
     slotsAccumRef.current = Array(8).fill(null);
     setImageSlots(Array(8).fill(null));
@@ -161,7 +219,11 @@ export default function App() {
           if (!jsonStr) continue;
           try {
             const data = JSON.parse(jsonStr);
-            if (data.type === 'image') {
+            if (data.type === 'queued') {
+              setQueuePosition(data.position);
+            } else if (data.type === 'started') {
+              setQueuePosition(null);
+            } else if (data.type === 'image') {
               slotsAccumRef.current[data.index] = data;
               setImageSlots(prev => {
                 const next = [...prev];
@@ -171,7 +233,9 @@ export default function App() {
             } else if (data.type === 'error') {
               setError(data.error);
               setLoading(false);
+              setQueuePosition(null);
             } else if (data.type === 'done') {
+              setQueuePosition(null);
               localStorage.setItem(freeKey(user.uid), 'true');
               setFreeUsed(true);
               setLoading(false);
@@ -313,9 +377,15 @@ export default function App() {
             </button>
 
             {loading && (
-              <p className={`loading-status ${loadingVisible ? 'msg-visible' : 'msg-hidden'}`}>
-                {LOADING_MESSAGES[loadingMsgIndex]}
-              </p>
+              queuePosition ? (
+                <p className="loading-status msg-visible">
+                  ⏳ You are #{queuePosition} in queue — generation starts soon...
+                </p>
+              ) : (
+                <p className={`loading-status ${loadingVisible ? 'msg-visible' : 'msg-hidden'}`}>
+                  {LOADING_MESSAGES[loadingMsgIndex]}
+                </p>
+              )
             )}
             {error && <div className="error-box">{error}</div>}
           </div>
