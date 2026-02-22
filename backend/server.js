@@ -22,15 +22,12 @@ if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
   }
 }
 
-// ─── Email transporter (Gmail) ────────────────────────────────────────────────
-let emailTransporter = null;
-if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
-  const nodemailer = require('nodemailer');
-  emailTransporter = nodemailer.createTransport({
-    service: 'gmail',
-    auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
-  });
-  console.log(`Email transporter ready (${process.env.EMAIL_USER})`);
+// ─── Email (Resend — HTTP API, works on all cloud platforms) ─────────────────
+let resendClient = null;
+if (process.env.RESEND_API_KEY) {
+  const { Resend } = require('resend');
+  resendClient = new Resend(process.env.RESEND_API_KEY);
+  console.log('Email service ready (Resend)');
 }
 
 // ─── OTP Store (in-memory) ────────────────────────────────────────────────────
@@ -49,14 +46,14 @@ app.post('/api/auth/send-otp', async (req, res) => {
   try {
     const { email } = req.body;
     if (!email || !email.includes('@')) return res.status(400).json({ error: 'Valid email required.' });
-    if (!adminAuth)        return res.status(503).json({ error: 'Auth service not configured. Set FIREBASE_SERVICE_ACCOUNT_JSON.' });
-    if (!emailTransporter) return res.status(503).json({ error: 'Email service not configured. Set EMAIL_USER and EMAIL_PASS.' });
+    if (!adminAuth)     return res.status(503).json({ error: 'Auth service not configured. Set FIREBASE_SERVICE_ACCOUNT_JSON.' });
+    if (!resendClient) return res.status(503).json({ error: 'Email service not configured. Set RESEND_API_KEY.' });
 
     const code = Math.floor(100000 + Math.random() * 900000).toString();
     otpStore.set(email.toLowerCase(), { code, expires: Date.now() + 10 * 60 * 1000, attempts: 0 });
 
-    await emailTransporter.sendMail({
-      from: `"SellerStudio" <${process.env.EMAIL_USER}>`,
+    await resendClient.emails.send({
+      from: 'SellerStudio <onboarding@resend.dev>',
       to: email,
       subject: `${code} is your SellerStudio login code`,
       html: `
