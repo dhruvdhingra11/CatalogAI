@@ -52,7 +52,7 @@ app.post('/api/auth/send-otp', async (req, res) => {
     const code = Math.floor(100000 + Math.random() * 900000).toString();
     otpStore.set(email.toLowerCase(), { code, expires: Date.now() + 10 * 60 * 1000, attempts: 0 });
 
-    await resendClient.emails.send({
+    const { data, error } = await resendClient.emails.send({
       from: 'SellerStudio <onboarding@resend.dev>',
       to: email,
       subject: `${code} is your SellerStudio login code`,
@@ -65,6 +65,11 @@ app.post('/api/auth/send-otp', async (req, res) => {
         </div>
       `,
     });
+    if (error) {
+      console.error('Resend error:', JSON.stringify(error));
+      throw new Error(error.message || 'Failed to send email.');
+    }
+    console.log('Resend sent, id:', data?.id);
 
     console.log(`OTP sent to ${email}`);
     res.json({ success: true });
