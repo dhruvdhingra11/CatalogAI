@@ -2,8 +2,6 @@ require('dotenv').config();
 const express = require('express');
 const multer = require('multer');
 const cors = require('cors');
-const nodemailer = require('nodemailer');
-
 const app = express();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
@@ -27,6 +25,7 @@ if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
 // ─── Email transporter (Gmail) ────────────────────────────────────────────────
 let emailTransporter = null;
 if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+  const nodemailer = require('nodemailer');
   emailTransporter = nodemailer.createTransport({
     service: 'gmail',
     auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
