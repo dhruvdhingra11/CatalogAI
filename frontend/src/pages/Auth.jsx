@@ -1,89 +1,67 @@
 import { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { signInWithCustomToken } from 'firebase/auth';
+import {
+  sendSignInLinkToEmail,
+  isSignInWithEmailLink,
+  signInWithEmailLink,
+} from 'firebase/auth';
 import { useAuth } from '../context/AuthContext';
 import { auth } from '../lib/firebase';
 import './Auth.css';
 
-const apiBase = import.meta.env.VITE_API_URL || '';
+const EMAIL_KEY = 'sellerstudio_email_for_signin';
 
 export default function Auth() {
-  const [tab, setTab]             = useState('login');
-  const [email, setEmail]         = useState('');
-  const [otpStep, setOtpStep]     = useState(false);
-  const [otp, setOtp]             = useState('');
-  const [error, setError]         = useState('');
-  const [loading, setLoading]     = useState(false);
-  const [resendTimer, setResendTimer] = useState(0);
+  const [email, setEmail]       = useState('');
+  const [linkSent, setLinkSent] = useState(false);
+  const [error, setError]       = useState('');
+  const [loading, setLoading]   = useState(false);
 
   const { googleLogin } = useAuth();
   const navigate  = useNavigate();
   const location  = useLocation();
   const from      = location.state?.from || '/dashboard';
 
-  // Resend countdown
+  // Complete sign-in when user lands back from the email link
   useEffect(() => {
-    if (resendTimer <= 0) return;
-    const t = setTimeout(() => setResendTimer(r => r - 1), 1000);
-    return () => clearTimeout(t);
-  }, [resendTimer]);
+    if (!auth || !isSignInWithEmailLink(auth, window.location.href)) return;
 
-  const sendOtp = async () => {
-    const res  = await fetch(`${apiBase}/api/auth/send-otp`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Failed to send code.');
-  };
-
-  const handleSendOtp = async (e) => {
-    e.preventDefault();
-    setError('');
-    setLoading(true);
-    try {
-      await sendOtp();
-      setOtpStep(true);
-      setResendTimer(30);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
+    let savedEmail = localStorage.getItem(EMAIL_KEY);
+    if (!savedEmail) {
+      savedEmail = window.prompt('Please re-enter your email to confirm sign-in:');
     }
-  };
+    if (!savedEmail) return;
 
-  const handleVerifyOtp = async (e) => {
-    e.preventDefault();
-    setError('');
     setLoading(true);
-    try {
-      const res  = await fetch(`${apiBase}/api/auth/verify-otp`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, code: otp }),
+    signInWithEmailLink(auth, savedEmail, window.location.href)
+      .then(() => {
+        localStorage.removeItem(EMAIL_KEY);
+        navigate(from, { replace: true });
+      })
+      .catch(err => {
+        setError('Sign-in link is invalid or expired. Please request a new one.');
+        setLoading(false);
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Verification failed.');
-      await signInWithCustomToken(auth, data.token);
-      navigate(from, { replace: true });
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
+  }, []);
 
-  const handleResend = async () => {
-    if (resendTimer > 0) return;
+  const handleSendLink = async (e) => {
+    e.preventDefault();
     setError('');
     setLoading(true);
     try {
-      await sendOtp();
-      setOtp('');
-      setResendTimer(30);
+      const actionCodeSettings = {
+        url: `${window.location.origin}/login`,
+        handleCodeInApp: true,
+      };
+      await sendSignInLinkToEmail(auth, email, actionCodeSettings);
+      localStorage.setItem(EMAIL_KEY, email);
+      setLinkSent(true);
     } catch (err) {
-      setError(err.message);
+      const msgs = {
+        'auth/invalid-email':      'Please enter a valid email address.',
+        'auth/too-many-requests':  'Too many attempts. Please wait a moment and try again.',
+      };
+      setError(msgs[err.code] || 'Failed to send link. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -94,15 +72,14 @@ export default function Auth() {
     setLoading(true);
     try {
       await googleLogin();
-      // signInWithRedirect — page will redirect, no further action needed
     } catch (err) {
       if (err.message) setError(err.message);
       setLoading(false);
     }
   };
 
-  // ── OTP verification screen ──────────────────────────────────────────────
-  if (otpStep) {
+  // ── Link sent confirmation screen ────────────────────────────────────────
+  if (linkSent) {
     return (
       <div className="auth-page">
         <nav className="auth-nav">
@@ -116,35 +93,14 @@ export default function Auth() {
             <span className="auth-otp-icon">📧</span>
             <h1 className="auth-title">Check your email</h1>
             <p className="auth-sub">
-              We sent a 6-digit code to <strong>{email}</strong>. Enter it below.
+              We sent a sign-in link to <strong>{email}</strong>.<br />
+              Click the link in the email to sign in — no password needed.
             </p>
-            <form onSubmit={handleVerifyOtp} className="auth-form">
-              <div className="auth-field">
-                <label>6-digit code</label>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  placeholder="• • • • • •"
-                  value={otp}
-                  onChange={e => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                  autoFocus
-                  required
-                />
-              </div>
-              {error && <div className="auth-error">{error}</div>}
-              <button type="submit" className="auth-submit" disabled={loading || otp.length < 6}>
-                {loading ? 'Verifying...' : 'Verify & Sign In'}
-              </button>
-            </form>
+            {error && <div className="auth-error">{error}</div>}
             <p className="auth-switch">
-              {resendTimer > 0 ? (
-                <span>Resend code in {resendTimer}s</span>
-              ) : (
-                <button type="button" onClick={handleResend} disabled={loading}>Resend code</button>
-              )}
-              {' · '}
-              <button type="button" onClick={() => { setOtpStep(false); setOtp(''); setError(''); }}>
-                Change email
+              Wrong email?{' '}
+              <button type="button" onClick={() => { setLinkSent(false); setEmail(''); }}>
+                Go back
               </button>
             </p>
           </div>
@@ -165,26 +121,9 @@ export default function Auth() {
 
       <div className="auth-container">
         <div className="auth-card">
-          <div className="auth-tabs">
-            <button
-              className={`auth-tab ${tab === 'login' ? 'active' : ''}`}
-              onClick={() => { setTab('login'); setError(''); }}
-            >
-              Log In
-            </button>
-            <button
-              className={`auth-tab ${tab === 'signup' ? 'active' : ''}`}
-              onClick={() => { setTab('signup'); setError(''); }}
-            >
-              Sign Up
-            </button>
-          </div>
-
-          <h1 className="auth-title">
-            {tab === 'login' ? 'Welcome back' : 'Create your account'}
-          </h1>
+          <h1 className="auth-title">Sign in to SellerStudio</h1>
           <p className="auth-sub">
-            Enter your email and we'll send you a login code. No password needed.
+            Enter your email and we'll send you a sign-in link. No password needed.
           </p>
 
           <button className="auth-google-btn" onClick={handleGoogle} disabled={loading}>
@@ -199,7 +138,7 @@ export default function Auth() {
 
           <div className="auth-divider"><span>or</span></div>
 
-          <form onSubmit={handleSendOtp} className="auth-form">
+          <form onSubmit={handleSendLink} className="auth-form">
             <div className="auth-field">
               <label>Email</label>
               <input
@@ -209,25 +148,14 @@ export default function Auth() {
                 onChange={e => setEmail(e.target.value)}
                 required
                 autoComplete="email"
+                autoFocus
               />
             </div>
             {error && <div className="auth-error">{error}</div>}
             <button type="submit" className="auth-submit" disabled={loading}>
-              {loading ? 'Sending code...' : 'Send Login Code →'}
+              {loading ? 'Sending link...' : 'Send Sign-In Link →'}
             </button>
           </form>
-
-          <p className="auth-switch">
-            {tab === 'login' ? (
-              <>Don&apos;t have an account?{' '}
-                <button type="button" onClick={() => { setTab('signup'); setError(''); }}>Sign up free</button>
-              </>
-            ) : (
-              <>Already have an account?{' '}
-                <button type="button" onClick={() => { setTab('login'); setError(''); }}>Log in</button>
-              </>
-            )}
-          </p>
         </div>
       </div>
     </div>
