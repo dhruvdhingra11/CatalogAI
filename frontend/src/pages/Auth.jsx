@@ -61,7 +61,7 @@ export default function Auth() {
         'auth/invalid-email':      'Please enter a valid email address.',
         'auth/too-many-requests':  'Too many attempts. Please wait a moment and try again.',
       };
-      setError(msgs[err.code] || 'Failed to send link. Please try again.');
+      setError(msgs[err.code] || `${err.code}: ${err.message}`);
     } finally {
       setLoading(false);
     }
