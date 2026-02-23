@@ -1,67 +1,51 @@
 import { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import {
-  sendSignInLinkToEmail,
-  isSignInWithEmailLink,
-  signInWithEmailLink,
-} from 'firebase/auth';
+import { sendPasswordResetEmail } from 'firebase/auth';
 import { useAuth } from '../context/AuthContext';
 import { auth } from '../lib/firebase';
 import './Auth.css';
 
-const EMAIL_KEY = 'sellerstudio_email_for_signin';
-
 export default function Auth() {
+  const [tab, setTab]           = useState('signin');
   const [email, setEmail]       = useState('');
-  const [linkSent, setLinkSent] = useState(false);
+  const [password, setPassword] = useState('');
   const [error, setError]       = useState('');
   const [loading, setLoading]   = useState(false);
+  const [resetSent, setResetSent] = useState(false);
 
-  const { googleLogin } = useAuth();
-  const navigate  = useNavigate();
-  const location  = useLocation();
-  const from      = location.state?.from || '/dashboard';
+  const { user, login, signup, googleLogin } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const from     = location.state?.from || '/dashboard';
 
-  // Complete sign-in when user lands back from the email link
+  // Redirect if already signed in — also handles Google redirect result
   useEffect(() => {
-    if (!auth || !isSignInWithEmailLink(auth, window.location.href)) return;
+    if (user) navigate(from, { replace: true });
+  }, [user]);
 
-    let savedEmail = localStorage.getItem(EMAIL_KEY);
-    if (!savedEmail) {
-      savedEmail = window.prompt('Please re-enter your email to confirm sign-in:');
-    }
-    if (!savedEmail) return;
+  const errorMessages = {
+    'auth/user-not-found':        'No account found with this email.',
+    'auth/wrong-password':        'Incorrect password.',
+    'auth/invalid-credential':    'Incorrect email or password.',
+    'auth/email-already-in-use':  'An account with this email already exists.',
+    'auth/weak-password':         'Password must be at least 6 characters.',
+    'auth/invalid-email':         'Please enter a valid email address.',
+    'auth/too-many-requests':     'Too many attempts. Please wait a moment and try again.',
+  };
 
-    setLoading(true);
-    signInWithEmailLink(auth, savedEmail, window.location.href)
-      .then(() => {
-        localStorage.removeItem(EMAIL_KEY);
-        navigate(from, { replace: true });
-      })
-      .catch(err => {
-        setError('Sign-in link is invalid or expired. Please request a new one.');
-        setLoading(false);
-      });
-  }, []);
-
-  const handleSendLink = async (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
     setLoading(true);
     try {
-      const actionCodeSettings = {
-        url: `${window.location.origin}/login`,
-        handleCodeInApp: true,
-      };
-      await sendSignInLinkToEmail(auth, email, actionCodeSettings);
-      localStorage.setItem(EMAIL_KEY, email);
-      setLinkSent(true);
+      if (tab === 'signup') {
+        await signup(email, password);
+      } else {
+        await login(email, password);
+      }
+      navigate(from, { replace: true });
     } catch (err) {
-      const msgs = {
-        'auth/invalid-email':      'Please enter a valid email address.',
-        'auth/too-many-requests':  'Too many attempts. Please wait a moment and try again.',
-      };
-      setError(msgs[err.code] || `${err.code}: ${err.message}`);
+      setError(errorMessages[err.code] || err.message);
     } finally {
       setLoading(false);
     }
@@ -72,44 +56,36 @@ export default function Auth() {
     setLoading(true);
     try {
       await googleLogin();
+      // signInWithRedirect does a full page redirect — code below won't run
     } catch (err) {
       if (err.message) setError(err.message);
       setLoading(false);
     }
   };
 
-  // ── Link sent confirmation screen ────────────────────────────────────────
-  if (linkSent) {
-    return (
-      <div className="auth-page">
-        <nav className="auth-nav">
-          <Link to="/" className="auth-logo">
-            <span className="auth-logo-mark">✦</span>
-            <span>SellerStudio</span>
-          </Link>
-        </nav>
-        <div className="auth-container">
-          <div className="auth-card">
-            <span className="auth-otp-icon">📧</span>
-            <h1 className="auth-title">Check your email</h1>
-            <p className="auth-sub">
-              We sent a sign-in link to <strong>{email}</strong>.<br />
-              Click the link in the email to sign in — no password needed.
-            </p>
-            {error && <div className="auth-error">{error}</div>}
-            <p className="auth-switch">
-              Wrong email?{' '}
-              <button type="button" onClick={() => { setLinkSent(false); setEmail(''); }}>
-                Go back
-              </button>
-            </p>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  const handleForgotPassword = async () => {
+    if (!email) {
+      setError('Enter your email above first, then click Forgot password.');
+      return;
+    }
+    setError('');
+    setLoading(true);
+    try {
+      await sendPasswordResetEmail(auth, email);
+      setResetSent(true);
+    } catch (err) {
+      setError(errorMessages[err.code] || err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-  // ── Email entry screen ───────────────────────────────────────────────────
+  const switchTab = (newTab) => {
+    setTab(newTab);
+    setError('');
+    setResetSent(false);
+  };
+
   return (
     <div className="auth-page">
       <nav className="auth-nav">
@@ -121,10 +97,22 @@ export default function Auth() {
 
       <div className="auth-container">
         <div className="auth-card">
-          <h1 className="auth-title">Sign in to SellerStudio</h1>
-          <p className="auth-sub">
-            Enter your email and we'll send you a sign-in link. No password needed.
-          </p>
+          <div className="auth-tabs">
+            <button
+              className={`auth-tab ${tab === 'signin' ? 'active' : ''}`}
+              onClick={() => switchTab('signin')}
+              type="button"
+            >
+              Sign In
+            </button>
+            <button
+              className={`auth-tab ${tab === 'signup' ? 'active' : ''}`}
+              onClick={() => switchTab('signup')}
+              type="button"
+            >
+              Sign Up
+            </button>
+          </div>
 
           <button className="auth-google-btn" onClick={handleGoogle} disabled={loading}>
             <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
@@ -138,24 +126,61 @@ export default function Auth() {
 
           <div className="auth-divider"><span>or</span></div>
 
-          <form onSubmit={handleSendLink} className="auth-form">
-            <div className="auth-field">
-              <label>Email</label>
-              <input
-                type="email"
-                placeholder="you@example.com"
-                value={email}
-                onChange={e => setEmail(e.target.value)}
-                required
-                autoComplete="email"
-                autoFocus
-              />
+          {resetSent ? (
+            <div className="auth-reset-sent">
+              <span className="auth-otp-icon">📧</span>
+              <p>Password reset email sent to <strong>{email}</strong>. Check your inbox.</p>
+              <button type="button" onClick={() => { setResetSent(false); setError(''); }}>
+                Back to sign in
+              </button>
             </div>
-            {error && <div className="auth-error">{error}</div>}
-            <button type="submit" className="auth-submit" disabled={loading}>
-              {loading ? 'Sending link...' : 'Send Sign-In Link →'}
-            </button>
-          </form>
+          ) : (
+            <form onSubmit={handleSubmit} className="auth-form">
+              <div className="auth-field">
+                <label>Email</label>
+                <input
+                  type="email"
+                  placeholder="you@example.com"
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                  required
+                  autoComplete="email"
+                  autoFocus
+                />
+              </div>
+              <div className="auth-field">
+                <label>Password</label>
+                <input
+                  type="password"
+                  placeholder={tab === 'signup' ? 'Min. 6 characters' : '••••••••'}
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  required
+                  autoComplete={tab === 'signup' ? 'new-password' : 'current-password'}
+                  minLength={6}
+                />
+              </div>
+
+              {error && <div className="auth-error">{error}</div>}
+
+              {tab === 'signin' && (
+                <button
+                  type="button"
+                  className="auth-forgot"
+                  onClick={handleForgotPassword}
+                  disabled={loading}
+                >
+                  Forgot password?
+                </button>
+              )}
+
+              <button type="submit" className="auth-submit" disabled={loading}>
+                {loading
+                  ? (tab === 'signup' ? 'Creating account...' : 'Signing in...')
+                  : (tab === 'signup' ? 'Create Account →' : 'Sign In →')}
+              </button>
+            </form>
+          )}
         </div>
       </div>
     </div>

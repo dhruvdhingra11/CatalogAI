@@ -285,6 +285,49 @@
 
 .auth-switch span { color: #b0b0c8; }
 
+/* ── Forgot password ── */
+.auth-forgot {
+  background: none;
+  border: none;
+  color: #6c63ff;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+  text-align: left;
+  font-family: inherit;
+  margin-top: -8px;
+}
+
+.auth-forgot:hover:not(:disabled) { text-decoration: underline; }
+.auth-forgot:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ── Reset sent ── */
+.auth-reset-sent {
+  text-align: center;
+  padding: 8px 0 16px;
+}
+
+.auth-reset-sent p {
+  font-size: 0.9rem;
+  color: #4a4a6a;
+  line-height: 1.6;
+  margin-bottom: 20px;
+}
+
+.auth-reset-sent button {
+  background: none;
+  border: none;
+  color: #6c63ff;
+  font-size: 0.87rem;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0;
+  font-family: inherit;
+}
+
+.auth-reset-sent button:hover { text-decoration: underline; }
+
 @media (max-width: 480px) {
   .auth-card { padding: 32px 24px; border-radius: 16px; }
   .auth-nav  { padding: 0 24px; }
