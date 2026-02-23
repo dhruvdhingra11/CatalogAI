@@ -53,7 +53,7 @@ app.post('/api/auth/send-otp', async (req, res) => {
     otpStore.set(email.toLowerCase(), { code, expires: Date.now() + 10 * 60 * 1000, attempts: 0 });
 
     const { data, error } = await resendClient.emails.send({
-      from: 'SellerStudio <onboarding@resend.dev>',
+      from: 'SellerStudio <noreply@sellerstudio.shop>',
       to: email,
       subject: `${code} is your SellerStudio login code`,
       html: `

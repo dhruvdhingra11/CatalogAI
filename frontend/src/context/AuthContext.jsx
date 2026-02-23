@@ -6,6 +6,7 @@ import {
   onAuthStateChanged,
   GoogleAuthProvider,
   signInWithRedirect,
+  signInWithCustomToken,
 } from 'firebase/auth';
 import { auth } from '../lib/firebase';
 
@@ -39,8 +40,11 @@ export function AuthProvider({ children }) {
   const googleLogin = () =>
     auth ? signInWithRedirect(auth, new GoogleAuthProvider()) : Promise.reject(new Error('Firebase not configured'));
 
+  const customTokenLogin = (token) =>
+    auth ? signInWithCustomToken(auth, token) : Promise.reject(new Error('Firebase not configured'));
+
   return (
-    <AuthContext.Provider value={{ user, authLoading, signup, login, logout, googleLogin }}>
+    <AuthContext.Provider value={{ user, authLoading, signup, login, logout, googleLogin, customTokenLogin }}>
       {!authLoading && children}
     </AuthContext.Provider>
   );

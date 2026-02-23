@@ -285,6 +285,21 @@
 
 .auth-switch span { color: #b0b0c8; }
 
+/* ── Subtabs (Sign In / Sign Up inside Password method) ── */
+.auth-subtabs {
+  margin-top: -8px;
+  margin-bottom: 20px;
+}
+
+/* ── OTP code input ── */
+.auth-code-input {
+  text-align: center;
+  font-size: 1.8rem !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.3em;
+  color: #6c63ff !important;
+}
+
 /* ── Forgot password ── */
 .auth-forgot {
   background: none;
