@@ -5,6 +5,8 @@ import { useAuth } from '../context/AuthContext';
 import { db } from '../lib/firebase';
 import './Auth.css';
 
+const API_BASE = import.meta.env.VITE_API_URL || '';
+
 export default function Auth() {
   const [email, setEmail]   = useState('');
   const [mobile, setMobile] = useState('');
@@ -28,7 +30,7 @@ export default function Auth() {
     setError('');
     setLoading(true);
     try {
-      const res = await fetch('/api/auth/send-otp', {
+      const res = await fetch(`${API_BASE}/api/auth/send-otp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email }),
@@ -49,7 +51,7 @@ export default function Auth() {
     setError('');
     setLoading(true);
     try {
-      const res = await fetch('/api/auth/verify-otp', {
+      const res = await fetch(`${API_BASE}/api/auth/verify-otp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, code }),
