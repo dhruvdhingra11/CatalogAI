@@ -237,6 +237,22 @@ YOUR TASK: Generate a new photorealistic product image following these rules:
 The reference image is attached. Study it carefully and reproduce that exact product in the described scene.`;
 }
 
+// ─── Retry Helper ──────────────────────────────────────────────────────────────
+async function withRetry(fn, { retries = 3, baseDelay = 2000, label = 'request' } = {}) {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      const is429 = err?.message?.includes('429') || err?.status === 429 ||
+                    err?.message?.includes('RESOURCE_EXHAUSTED');
+      if (!is429 || attempt === retries) throw err;
+      const delay = baseDelay * Math.pow(2, attempt); // 2s, 4s, 8s
+      console.log(`[${label}] 429 rate limit — retrying in ${delay / 1000}s (attempt ${attempt + 1}/${retries})...`);
+      await new Promise(r => setTimeout(r, delay));
+    }
+  }
+}
+
 // ─── Generate Prompts ──────────────────────────────────────────────────────────
 async function generatePrompts(imageBuffer, mimeType, productName) {
   const promptText = promptSystemText(productName);
@@ -244,17 +260,27 @@ async function generatePrompts(imageBuffer, mimeType, productName) {
   let responseText;
 
   if (USE_VERTEX) {
-    const model = vertexAI.getGenerativeModel({ model: VERTEX_TEXT_MODEL });
-    const result = await model.generateContent({
-      contents: [{
-        role: 'user',
-        parts: [
-          { text: promptText },
-          { inlineData: { mimeType, data: b64 } },
-        ],
-      }],
-    });
-    responseText = result.response.candidates[0].content.parts[0].text.trim();
+    try {
+      responseText = await withRetry(async () => {
+        const model = vertexAI.getGenerativeModel({ model: VERTEX_TEXT_MODEL });
+        const result = await model.generateContent({
+          contents: [{ role: 'user', parts: [
+            { text: promptText },
+            { inlineData: { mimeType, data: b64 } },
+          ]}],
+        });
+        return result.response.candidates[0].content.parts[0].text.trim();
+      }, { retries: 3, baseDelay: 2000, label: 'Vertex AI prompts' });
+    } catch (err) {
+      // Fallback to Gemini API if Vertex keeps failing
+      console.warn('[Vertex AI] All retries failed, falling back to Gemini API:', err.message);
+      const model = genAI.getGenerativeModel({ model: 'gemini-2.5-pro' });
+      const result = await model.generateContent([
+        promptText,
+        { inlineData: { data: b64, mimeType } },
+      ]);
+      responseText = result.response.text().trim();
+    }
   } else {
     const model = genAI.getGenerativeModel({ model: 'gemini-2.5-pro' });
     const result = await model.generateContent([
