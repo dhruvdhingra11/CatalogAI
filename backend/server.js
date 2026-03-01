@@ -300,6 +300,38 @@ async function generatePrompts(imageBuffer, mimeType, productName) {
   return prompts;
 }
 
+// ─── Generate Bullet Points ────────────────────────────────────────────────────
+async function generateBulletPoints(imageBuffer, mimeType, productName) {
+  const prompt = `You are an expert Amazon.in and Flipkart product listing copywriter.
+Analyze this product image and the product name "${productName}".
+Write exactly 5 bullet points for this product's marketplace listing.
+
+Rules for each bullet point:
+- Start with a bold keyword in ALL CAPS followed by " – " (e.g. "PREMIUM QUALITY – ")
+- 1-2 sentences. Be specific: mention materials, dimensions, compatibility, or exact use case where visible in the image
+- Each of the 5 points highlights a different benefit: build quality, primary use case, compatibility/fit, pack contents or value, and trust/durability
+- Written for Indian buyers on Amazon.in / Flipkart — practical, benefit-driven language
+- No generic filler like "great product" or "perfect gift" — every point must contain real information
+
+Return ONLY a valid JSON array of exactly 5 strings. No markdown code blocks, no explanation, no extra text.
+Example format: ["PREMIUM MATERIAL – ...", "PERFECT FIT – ...", "WIDE COMPATIBILITY – ...", "COMPLETE PACKAGE – ...", "TRUSTED QUALITY – ..."]`;
+
+  const imageBase64 = imageBuffer.toString('base64');
+  const model = genAI.getGenerativeModel({ model: 'gemini-2.5-pro' });
+  const result = await model.generateContent({
+    contents: [{ role: 'user', parts: [
+      { text: prompt },
+      { inlineData: { mimeType, data: imageBase64 } },
+    ]}],
+  });
+  const text = result.response.text();
+  const match = text.match(/\[[\s\S]*?\]/);
+  if (!match) throw new Error('No JSON array in bullet points response');
+  const bullets = JSON.parse(match[0]);
+  if (!Array.isArray(bullets) || bullets.length !== 5) throw new Error(`Expected 5 bullet points, got ${bullets.length}`);
+  return bullets;
+}
+
 // ─── Generate Image ────────────────────────────────────────────────────────────
 // Always uses Gemini API (AI Studio) — gemini-3-pro-image-preview is the only
 // model that reliably supports product reference image → new image generation.
@@ -400,6 +432,14 @@ app.post('/api/generate', upload.single('image'), (req, res) => {
     console.log(`Prompts generated (${prompts.length})`);
     send({ type: 'prompts', prompts });
 
+    // Start bullet point generation concurrently — non-blocking
+    const bulletsPromise = generateBulletPoints(buffer, mimetype, productName)
+      .then(bullets => {
+        if (!clientGone) send({ type: 'bullets', bullets });
+        console.log('[Bullets] Generated successfully');
+      })
+      .catch(err => console.error('[Bullets] Generation failed:', err.message));
+
     // Brief warm-up pause before image generation
     await new Promise(r => setTimeout(r, 2000));
 
@@ -434,6 +474,8 @@ app.post('/api/generate', upload.single('image'), (req, res) => {
       }
     }
 
+    // Ensure bullets have been sent before signalling done
+    await bulletsPromise;
     send({ type: 'done' });
   };
 

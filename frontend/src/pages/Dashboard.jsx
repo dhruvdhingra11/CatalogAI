@@ -136,6 +136,9 @@ export default function Dashboard() {
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState('');
   const [renameSaving, setRenameSaving] = useState(false);
+  const [isEditingBullets, setIsEditingBullets] = useState(false);
+  const [editBullets, setEditBullets] = useState([]);
+  const [bulletSaving, setBulletSaving] = useState(false);
 
   useEffect(() => {
     if (!user) { navigate('/login', { replace: true }); return; }
@@ -240,6 +243,20 @@ export default function Dashboard() {
     }
   }
 
+  async function saveBulletEdits() {
+    setBulletSaving(true);
+    try {
+      await updateDoc(doc(db, 'generations', expandedGen.id), { bulletPoints: editBullets });
+      setGenerations(prev => prev.map(g => g.id === expandedGen.id ? { ...g, bulletPoints: editBullets } : g));
+      setExpandedGen(prev => ({ ...prev, bulletPoints: editBullets }));
+      setIsEditingBullets(false);
+    } catch (err) {
+      console.error('Failed to save bullet points:', err);
+    } finally {
+      setBulletSaving(false);
+    }
+  }
+
   const handleLogout = async () => {
     await logout();
     navigate('/');
@@ -309,7 +326,7 @@ export default function Dashboard() {
             ) : (
               <div className="dash-gen-grid">
                 {generations.map(gen => (
-                  <div key={gen.id} className="dash-gen-card" onClick={() => setExpandedGen(gen)}>
+                  <div key={gen.id} className="dash-gen-card" onClick={() => { setExpandedGen(gen); setIsEditingBullets(false); setEditBullets(gen.bulletPoints || []); }}>
                     <div className="dash-gen-thumb">
                       {gen.imageUrls?.[0] ? (
                         <img src={gen.imageUrls[0]} alt={gen.productName} />
@@ -523,6 +540,57 @@ export default function Dashboard() {
                   </a>
                 </div>
               ) : null)}
+            </div>
+
+            {/* Bullet Points Section */}
+            <div className="dash-bullets-section">
+              <div className="dash-bullets-header">
+                <div className="dash-bullets-title-row">
+                  <span>📝</span>
+                  <h4>Product Description</h4>
+                </div>
+                {!isEditingBullets && expandedGen.bulletPoints?.length > 0 && (
+                  <button className="dash-bullets-edit-btn" onClick={() => { setEditBullets(expandedGen.bulletPoints); setIsEditingBullets(true); }}>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                      <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" strokeLinecap="round" strokeLinejoin="round"/>
+                      <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                    Edit
+                  </button>
+                )}
+              </div>
+
+              {isEditingBullets ? (
+                <div className="dash-bullets-edit">
+                  {editBullets.map((b, i) => (
+                    <textarea
+                      key={i}
+                      className="dash-bullet-textarea"
+                      value={b}
+                      onChange={e => { const n = [...editBullets]; n[i] = e.target.value; setEditBullets(n); }}
+                    />
+                  ))}
+                  <div className="dash-bullets-edit-actions">
+                    <button className="dash-bullets-save-btn" onClick={saveBulletEdits} disabled={bulletSaving}>
+                      {bulletSaving ? 'Saving…' : 'Save Changes'}
+                    </button>
+                    <button className="dash-bullets-cancel-btn" onClick={() => setIsEditingBullets(false)}>
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : expandedGen.bulletPoints?.length > 0 ? (
+                <ul className="dash-bullets-list">
+                  {expandedGen.bulletPoints.map((b, i) => (
+                    <li key={i}>
+                      <span className="dash-bullet-num">{i + 1}</span>
+                      <span>{b}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="dash-bullets-empty">No description bullets for this product.</p>
+              )}
             </div>
           </div>
         </div>

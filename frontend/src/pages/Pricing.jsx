@@ -68,7 +68,7 @@ const PACKS = [
 
 export default function Pricing() {
   useEffect(() => {
-    document.body.style.background = '#ffffff';
+    document.body.style.background = '#fff';
     return () => { document.body.style.background = ''; };
   }, []);
 

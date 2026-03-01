@@ -74,7 +74,7 @@ const TIPS = [
   { label: 'Mention key feature', example: '"Wireless Noise-Cancelling Over-Ear Headphones"' },
 ];
 
-async function saveGenerationToFirebase(slots, productName, uid) {
+async function saveGenerationToFirebase(slots, productName, uid, bullets) {
   if (!db || !storage) throw new Error('Firebase not initialized. Check your .env config.');
 
   const genId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -93,6 +93,7 @@ async function saveGenerationToFirebase(slots, productName, uid) {
     userId: uid,
     productName,
     imageUrls,
+    bulletPoints: bullets || [],
     createdAt: serverTimestamp(),
   });
 }
@@ -112,10 +113,13 @@ export default function App() {
   const [saveStatus, setSaveStatus] = useState(null); // null | 'saving' | 'saved' | 'error'
   const [saveError, setSaveError] = useState('');
   const [queuePosition, setQueuePosition] = useState(null);
+  const [bulletPoints, setBulletPoints] = useState([]);
+  const [copied, setCopied] = useState(false);
   const navigate = useNavigate();
   const fileInputRef = useRef(null);
   const loadingIntervalRef = useRef(null);
   const slotsAccumRef = useRef([]);
+  const bulletsRef = useRef([]);
 
   const { user } = useAuth();
   const [freeUsed, setFreeUsed] = useState(false);
@@ -186,6 +190,9 @@ export default function App() {
     setQueuePosition(null);
     setGeneratedName(productName.trim());
     slotsAccumRef.current = Array(8).fill(null);
+    bulletsRef.current = [];
+    setBulletPoints([]);
+    setCopied(false);
     setImageSlots(Array(8).fill(null));
 
     try {
@@ -230,6 +237,9 @@ export default function App() {
                 next[data.index] = data;
                 return next;
               });
+            } else if (data.type === 'bullets') {
+              bulletsRef.current = data.bullets;
+              setBulletPoints(data.bullets);
             } else if (data.type === 'error') {
               setError(data.error);
               setLoading(false);
@@ -242,7 +252,7 @@ export default function App() {
               setShowUpgradeModal(true);
               setSaveStatus('saving');
               setSaveError('');
-              saveGenerationToFirebase(slotsAccumRef.current, productName.trim(), user.uid)
+              saveGenerationToFirebase(slotsAccumRef.current, productName.trim(), user.uid, bulletsRef.current)
                 .then(() => setSaveStatus('saved'))
                 .catch(err => {
                   console.error('Firebase save error:', err);
@@ -269,6 +279,14 @@ export default function App() {
   const downloadAll = () => {
     imageSlots?.forEach((img, i) => {
       if (img?.imageData) setTimeout(() => downloadImage(img.imageData, i, img.style), i * 300);
+    });
+  };
+
+  const handleCopyBullets = () => {
+    const text = bulletPoints.map((b, i) => `${i + 1}. ${b}`).join('\n');
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
     });
   };
 
@@ -435,6 +453,40 @@ export default function App() {
                 ))}
               </div>
             </div>
+
+            {(bulletPoints.length > 0 || loading) && (
+              <div className="app-bullets-section">
+                <div className="app-bullets-header">
+                  <div className="app-bullets-title-wrap">
+                    <span className="app-bullets-icon">📝</span>
+                    <div>
+                      <h3 className="app-bullets-title">Product Description Bullets</h3>
+                      <p className="app-bullets-subtitle">Ready to copy-paste on Amazon · Flipkart · Meesho</p>
+                    </div>
+                  </div>
+                  {bulletPoints.length > 0 && (
+                    <button className="app-bullets-copy" onClick={handleCopyBullets}>
+                      {copied ? '✓ Copied!' : 'Copy All'}
+                    </button>
+                  )}
+                </div>
+                {bulletPoints.length > 0 ? (
+                  <ul className="app-bullets-list">
+                    {bulletPoints.map((b, i) => (
+                      <li key={i}>
+                        <span className="app-bullet-num">{i + 1}</span>
+                        <span>{b}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <div className="app-bullets-loading">
+                    <span className="btn-spinner" />
+                    <span>Generating product description...</span>
+                  </div>
+                )}
+              </div>
+            )}
           </section>
         )}
       </main>
