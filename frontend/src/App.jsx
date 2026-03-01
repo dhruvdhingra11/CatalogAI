@@ -121,6 +121,7 @@ export default function App() {
   const slotsAccumRef = useRef([]);
   const bulletsRef = useRef([]);
 
+  const [generationDone, setGenerationDone] = useState(false);
   const { user } = useAuth();
   const [freeUsed, setFreeUsed] = useState(false);
 
@@ -189,6 +190,7 @@ export default function App() {
     setError(null);
     setQueuePosition(null);
     setGeneratedName(productName.trim());
+    setGenerationDone(false);
     slotsAccumRef.current = Array(8).fill(null);
     bulletsRef.current = [];
     setBulletPoints([]);
@@ -249,6 +251,7 @@ export default function App() {
               localStorage.setItem(freeKey(user.uid), 'true');
               setFreeUsed(true);
               setLoading(false);
+              setGenerationDone(true);
               setShowUpgradeModal(true);
               setSaveStatus('saving');
               setSaveError('');
@@ -290,6 +293,31 @@ export default function App() {
     });
   };
 
+  const handleGoToAPlus = () => {
+    try {
+      const slots = slotsAccumRef.current;
+      // Pick up to 2 ecommerce (indices 0-3) + up to 2 lifestyle (indices 4-7)
+      const ecom = slots.slice(0, 4).filter(s => s?.imageData).slice(0, 2).map(s => s.imageData);
+      const life = slots.slice(4, 8).filter(s => s?.imageData).slice(0, 2).map(s => s.imageData);
+      const images = [...ecom, ...life];
+      sessionStorage.setItem('aplusPreFill', JSON.stringify({
+        productTitle: productName,
+        bulletPoints: bulletsRef.current,
+        imageBase64List: images,
+      }));
+    } catch (_) {
+      // sessionStorage too full — store only text
+      try {
+        sessionStorage.setItem('aplusPreFill', JSON.stringify({
+          productTitle: productName,
+          bulletPoints: bulletsRef.current,
+          imageBase64List: [],
+        }));
+      } catch (_) {}
+    }
+    navigate('/aplus');
+  };
+
   const successCount = imageSlots?.filter(img => img?.imageData).length ?? 0;
   const showResults = imageSlots !== null;
 
@@ -302,6 +330,13 @@ export default function App() {
           <span>SellerStudio</span>
         </Link>
         <div className="tool-nav-right">
+          <div className="l-nav-dropdown">
+            <button className="l-nav-dropdown-trigger tool-dropdown-trigger">Tools ▾</button>
+            <div className="l-nav-dropdown-menu">
+              <Link to="/tool">🖼 Image + Copy Generator</Link>
+              <Link to="/aplus">✦ A+ Listing Generator</Link>
+            </div>
+          </div>
           {user ? (
             <Link to="/dashboard" className="tool-nav-link">Dashboard</Link>
           ) : (
@@ -454,6 +489,21 @@ export default function App() {
               </div>
             </div>
 
+            {generationDone && (
+              <div className="app-aplus-upsell">
+                <div className="app-aplus-upsell-content">
+                  <span className="app-aplus-upsell-badge">BUNDLE &amp; SAVE</span>
+                  <div>
+                    <strong>Complete your listing — generate A+ Content next</strong>
+                    <span>Your images &amp; bullet points are pre-filled. Generate Amazon A+ banner, hero &amp; feature cards in one click. <strong style={{color:'#059669'}}>50% off when you buy with image credits!</strong></span>
+                  </div>
+                </div>
+                <button className="app-aplus-upsell-btn" onClick={handleGoToAPlus}>
+                  Create A+ Listing →
+                </button>
+              </div>
+            )}
+
             {(bulletPoints.length > 0 || loading) && (
               <div className="app-bullets-section">
                 <div className="app-bullets-header">
@@ -505,6 +555,9 @@ export default function App() {
               <span className="upgrade-per">per product · 8 images · credits never expire</span>
             </div>
             <Link to="/pricing" className="upgrade-btn-primary">Buy Credits →</Link>
+            <button className="upgrade-btn-aplus" onClick={() => { setShowUpgradeModal(false); handleGoToAPlus(); }}>
+              ✦ Create A+ Listing with these images →
+            </button>
             <div className="upgrade-actions-row">
               <Link to="/dashboard" className="upgrade-btn-secondary" onClick={() => setShowUpgradeModal(false)}>View Dashboard</Link>
               <button className="upgrade-btn-ghost" onClick={() => { downloadAll(); setShowUpgradeModal(false); }}>

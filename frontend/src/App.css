@@ -763,6 +763,28 @@ body {
 
 .upgrade-btn-ghost:hover { color: var(--text-secondary); }
 
+.upgrade-btn-aplus {
+  display: block;
+  width: 100%;
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  color: #fff;
+  border: none;
+  padding: 14px;
+  border-radius: var(--radius-md);
+  font-size: 0.92rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-bottom: 10px;
+  font-family: var(--font);
+  letter-spacing: -0.01em;
+}
+
+.upgrade-btn-aplus:hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
+}
+
 .upgrade-actions-row {
   display: flex;
   gap: 8px;
@@ -878,3 +900,85 @@ body {
   font-size: 0.88rem;
   padding: 8px 0;
 }
+
+
+/* ── A+ Upsell Banner ────────────────────────────────────────────────────────── */
+
+.app-aplus-upsell {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  justify-content: space-between;
+  background: linear-gradient(135deg, #fffbf0, #fff8e6);
+  border: 1.5px solid rgba(245, 158, 11, 0.25);
+  border-radius: 18px;
+  padding: 22px 28px;
+  margin-top: 24px;
+  flex-wrap: wrap;
+}
+
+.app-aplus-upsell-content {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex: 1;
+  min-width: 0;
+}
+
+.app-aplus-upsell-badge {
+  flex-shrink: 0;
+  background: #f59e0b;
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  padding: 3px 9px;
+  border-radius: 100px;
+}
+
+.app-aplus-upsell-content > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.app-aplus-upsell-content strong {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #0d0d1a;
+}
+
+.app-aplus-upsell-content span {
+  font-size: 0.83rem;
+  color: #888;
+  line-height: 1.4;
+}
+
+.app-aplus-upsell-btn {
+  flex-shrink: 0;
+  white-space: nowrap;
+  background: #f59e0b;
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  padding: 12px 22px;
+  font-weight: 700;
+  font-size: 0.92rem;
+  cursor: pointer;
+  transition: opacity 0.2s, transform 0.15s;
+  font-family: inherit;
+}
+
+.app-aplus-upsell-btn:hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
+}
+
+/* ── Tools Dropdown in Tool Nav ──────────────────────────────────────────────── */
+
+.tool-dropdown-trigger {
+  font-size: 0.85rem !important;
+  color: var(--text-secondary) !important;
+  padding: 4px 8px;
+}
+

@@ -7,9 +7,18 @@ import './Dashboard.css';
 
 const TABS = [
   { id: 'photos', label: 'My Photos' },
+  { id: 'aplus', label: 'A+ Listings' },
   { id: 'settings', label: 'Account Settings' },
   { id: 'history', label: 'Purchase History' },
 ];
+
+const APLUS_MODULE_META = {
+  banner:   { label: 'Banner',    dims: '970×300' },
+  hero:     { label: 'Hero',      dims: '970×600' },
+  feature1: { label: 'Feature 1', dims: '300×300' },
+  feature2: { label: 'Feature 2', dims: '300×300' },
+  feature3: { label: 'Feature 3', dims: '300×300' },
+};
 
 const EMPTY_SETTINGS = {
   fullName: '', phone: '', gstNumber: '',
@@ -139,6 +148,10 @@ export default function Dashboard() {
   const [isEditingBullets, setIsEditingBullets] = useState(false);
   const [editBullets, setEditBullets] = useState([]);
   const [bulletSaving, setBulletSaving] = useState(false);
+  const [copiedBullet, setCopiedBullet] = useState(null); // null | 'all' | index
+  const [aplusGenerations, setAplusGenerations] = useState([]);
+  const [aplusLoading, setAplusLoading] = useState(false);
+  const [expandedAplus, setExpandedAplus] = useState(null);
 
   useEffect(() => {
     if (!user) { navigate('/login', { replace: true }); return; }
@@ -149,6 +162,9 @@ export default function Dashboard() {
   useEffect(() => {
     if (activeTab === 'history' && purchases.length === 0 && !purchasesLoading) {
       loadPurchases();
+    }
+    if (activeTab === 'aplus' && aplusGenerations.length === 0 && !aplusLoading) {
+      loadAplusGenerations();
     }
   }, [activeTab]);
 
@@ -182,6 +198,21 @@ export default function Dashboard() {
     }
   }
 
+  async function loadAplusGenerations() {
+    setAplusLoading(true);
+    try {
+      const apiBase = import.meta.env.VITE_API_URL || '';
+      const resp = await fetch(`${apiBase}/api/aplus-generations?uid=${user.uid}`);
+      if (!resp.ok) throw new Error('Failed to fetch');
+      const { generations } = await resp.json();
+      setAplusGenerations(generations || []);
+    } catch (err) {
+      console.error('Failed to load A+ generations:', err);
+    } finally {
+      setAplusLoading(false);
+    }
+  }
+
   async function loadSettings() {
     if (!db) { setSettingsLoading(false); return; }
     try {
@@ -210,20 +241,59 @@ export default function Dashboard() {
     }
   }
 
-  function downloadAllImages(gen) {
-    const urls = (gen.imageUrls || []).filter(Boolean);
-    urls.forEach((url, i) => {
-      setTimeout(() => {
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${gen.productName}_${i + 1}.png`;
-        a.target = '_blank';
-        a.rel = 'noreferrer';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-      }, i * 350);
+  const [downloading, setDownloading] = useState(false);
+
+  function loadImageAsBlob(url) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+        canvas.toBlob(blob => {
+          if (blob) resolve(blob);
+          else reject(new Error('Canvas toBlob failed'));
+        }, 'image/png');
+      };
+      img.onerror = () => reject(new Error('Image load failed'));
+      img.src = url;
     });
+  }
+
+  async function downloadAllImages(gen) {
+    const urls = (gen.imageUrls || []).filter(Boolean);
+    if (urls.length === 0) return;
+    setDownloading(true);
+    try {
+      const JSZip = (await import('jszip')).default;
+      const zip = new JSZip();
+      const folder = zip.folder(gen.productName.replace(/\s+/g, '_'));
+      await Promise.all(
+        urls.map(async (url, i) => {
+          try {
+            const blob = await loadImageAsBlob(url);
+            folder.file(`${gen.productName}_${i + 1}.png`, blob);
+          } catch (err) {
+            console.error(`Failed to load image ${i + 1}:`, err);
+          }
+        })
+      );
+      const content = await zip.generateAsync({ type: 'blob' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(content);
+      a.download = `${gen.productName.replace(/\s+/g, '_')}_images.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(a.href);
+    } catch (err) {
+      console.error('Download all failed:', err);
+    } finally {
+      setDownloading(false);
+    }
   }
 
   async function handleRename() {
@@ -275,6 +345,7 @@ export default function Dashboard() {
           </Link>
           <div className="dash-nav-right">
             <Link to="/tool" className="dash-nav-tool">+ Generate Images</Link>
+            <Link to="/aplus" className="dash-nav-aplus">✦ A+ Listing</Link>
             <div className="dash-user-pill">
               <span className="dash-user-avatar">{displayName[0].toUpperCase()}</span>
               <span className="dash-user-name">{displayName}</span>
@@ -296,6 +367,9 @@ export default function Dashboard() {
               {t.label}
               {t.id === 'photos' && generations.length > 0 && (
                 <span className="dash-tab-count">{generations.length}</span>
+              )}
+              {t.id === 'aplus' && aplusGenerations.length > 0 && (
+                <span className="dash-tab-count">{aplusGenerations.length}</span>
               )}
             </button>
           ))}
@@ -339,6 +413,52 @@ export default function Dashboard() {
                     </div>
                     <div className="dash-gen-info">
                       <p className="dash-gen-name">{gen.productName}</p>
+                      <p className="dash-gen-date">
+                        {gen.createdAt?.toDate?.()?.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) || '—'}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* A+ Listings */}
+        {activeTab === 'aplus' && (
+          <div className="dash-photos">
+            <div className="dash-section-header">
+              <h2>A+ Listings</h2>
+              <p>Your saved Amazon A+ Content assets — banners, hero images, and feature cards.</p>
+            </div>
+            {aplusLoading ? (
+              <div className="dash-loading">
+                <div className="dash-spinner" />
+                <span>Loading your A+ listings...</span>
+              </div>
+            ) : aplusGenerations.length === 0 ? (
+              <div className="dash-empty">
+                <div className="dash-empty-icon">✦</div>
+                <h3>No A+ listings yet</h3>
+                <p>Generate your first A+ listing and it'll appear here.</p>
+                <Link to="/aplus" className="dash-empty-cta">Create A+ Listing →</Link>
+              </div>
+            ) : (
+              <div className="dash-gen-grid">
+                {aplusGenerations.map(gen => (
+                  <div key={gen.id} className="dash-gen-card" onClick={() => setExpandedAplus(gen)}>
+                    <div className="dash-gen-thumb">
+                      {gen.moduleImageUrls?.banner ? (
+                        <img src={gen.moduleImageUrls.banner} alt={gen.productTitle} />
+                      ) : (
+                        <div className="dash-gen-placeholder">✦</div>
+                      )}
+                      <div className="dash-gen-overlay">
+                        <span>View 5 modules</span>
+                      </div>
+                    </div>
+                    <div className="dash-gen-info">
+                      <p className="dash-gen-name">{gen.productTitle}</p>
                       <p className="dash-gen-date">
                         {gen.createdAt?.toDate?.()?.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) || '—'}
                       </p>
@@ -478,6 +598,54 @@ export default function Dashboard() {
         )}
       </main>
 
+      {/* A+ Modal */}
+      {expandedAplus && (
+        <div className="dash-modal-overlay" onClick={() => setExpandedAplus(null)}>
+          <div className="dash-modal dash-aplus-modal" onClick={e => e.stopPropagation()}>
+            <div className="dash-modal-header">
+              <div className="dash-modal-title">
+                <h3>{expandedAplus.productTitle}</h3>
+                <span className="dash-aplus-brand-tag">{expandedAplus.brandName}</span>
+              </div>
+              <button className="dash-modal-close" onClick={() => setExpandedAplus(null)}>✕</button>
+            </div>
+
+            <div className="dash-aplus-modules">
+              {Object.entries(APLUS_MODULE_META).map(([key, meta]) => {
+                const url = expandedAplus.moduleImageUrls?.[key];
+                return url ? (
+                  <div key={key} className="dash-aplus-module-row">
+                    <div className="dash-aplus-module-info">
+                      <span className="dash-aplus-module-label">{meta.label}</span>
+                      <span className="dash-aplus-module-dims">{meta.dims}</span>
+                    </div>
+                    <div className="dash-aplus-module-img-wrap">
+                      <img src={url} alt={meta.label} />
+                    </div>
+                    <a href={url} download={`${expandedAplus.productTitle}_${key}.png`} target="_blank" rel="noreferrer" className="dash-aplus-dl-btn">
+                      Download
+                    </a>
+                  </div>
+                ) : null;
+              })}
+            </div>
+
+            {expandedAplus.copy && (
+              <div className="dash-aplus-copy-section">
+                <h4>Copy Text</h4>
+                <div className="dash-aplus-copy-grid">
+                  <div><span className="dash-aplus-copy-key">Banner headline</span><p>{expandedAplus.copy.banner?.headline}</p></div>
+                  <div><span className="dash-aplus-copy-key">Hero headline</span><p>{expandedAplus.copy.hero?.headline}</p></div>
+                  {expandedAplus.copy.features?.map((f, i) => (
+                    <div key={i}><span className="dash-aplus-copy-key">Feature {i + 1}</span><p>{f.headline}</p></div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Photo Expand Modal */}
       {expandedGen && (
         <div className="dash-modal-overlay" onClick={() => { setExpandedGen(null); setIsRenaming(false); }}>
@@ -519,11 +687,11 @@ export default function Dashboard() {
                 )}
               </div>
               <div className="dash-modal-header-actions">
-                <button className="dash-dl-all-btn" onClick={() => downloadAllImages(expandedGen)}>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <button className="dash-dl-all-btn" onClick={() => downloadAllImages(expandedGen)} disabled={downloading}>
+                  {downloading ? <span className="dash-spinner" style={{width:13,height:13,borderWidth:2}} /> : <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                     <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3" strokeLinecap="round" strokeLinejoin="round"/>
-                  </svg>
-                  Download All
+                  </svg>}
+                  {downloading ? 'Downloading...' : 'Download All'}
                 </button>
                 <button className="dash-modal-close" onClick={() => { setExpandedGen(null); setIsRenaming(false); }}>✕</button>
               </div>
@@ -549,15 +717,31 @@ export default function Dashboard() {
                   <span>📝</span>
                   <h4>Product Description</h4>
                 </div>
-                {!isEditingBullets && expandedGen.bulletPoints?.length > 0 && (
-                  <button className="dash-bullets-edit-btn" onClick={() => { setEditBullets(expandedGen.bulletPoints); setIsEditingBullets(true); }}>
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                      <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" strokeLinecap="round" strokeLinejoin="round"/>
-                      <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" strokeLinecap="round" strokeLinejoin="round"/>
-                    </svg>
-                    Edit
-                  </button>
-                )}
+                <div className="dash-bullets-header-actions">
+                  {!isEditingBullets && expandedGen.bulletPoints?.length > 0 && (
+                    <>
+                      <button
+                        className="dash-bullets-copy-all-btn"
+                        onClick={() => {
+                          const text = expandedGen.bulletPoints.map((b, i) => `${i + 1}. ${b}`).join('\n');
+                          navigator.clipboard.writeText(text).then(() => {
+                            setCopiedBullet('all');
+                            setTimeout(() => setCopiedBullet(null), 2000);
+                          });
+                        }}
+                      >
+                        {copiedBullet === 'all' ? '✓ Copied All' : 'Copy All'}
+                      </button>
+                      <button className="dash-bullets-edit-btn" onClick={() => { setEditBullets(expandedGen.bulletPoints); setIsEditingBullets(true); }}>
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                          <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" strokeLinecap="round" strokeLinejoin="round"/>
+                          <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                        Edit
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
 
               {isEditingBullets ? (
@@ -584,7 +768,18 @@ export default function Dashboard() {
                   {expandedGen.bulletPoints.map((b, i) => (
                     <li key={i}>
                       <span className="dash-bullet-num">{i + 1}</span>
-                      <span>{b}</span>
+                      <span className="dash-bullet-text">{b}</span>
+                      <button
+                        className="dash-bullet-copy-btn"
+                        onClick={() => {
+                          navigator.clipboard.writeText(b).then(() => {
+                            setCopiedBullet(i);
+                            setTimeout(() => setCopiedBullet(null), 2000);
+                          });
+                        }}
+                      >
+                        {copiedBullet === i ? '✓' : 'Copy'}
+                      </button>
                     </li>
                   ))}
                 </ul>

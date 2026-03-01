@@ -39,6 +39,31 @@ const FAQS = [
   },
 ];
 
+const APLUS_PACKS = [
+  {
+    name: 'A+ Solo',
+    price: 299,
+    highlight: false,
+    badge: null,
+    desc: 'One A+ listing, all 5 modules + copy',
+  },
+  {
+    name: 'A+ Bundle',
+    price: 199,
+    highlight: true,
+    badge: 'Best Value',
+    desc: 'Already have SellerStudio photos? Save ₹100',
+  },
+  {
+    name: 'A+ Scale',
+    price: 799,
+    highlight: false,
+    badge: null,
+    desc: '5 A+ listings (₹160 each)',
+    perListing: 160,
+  },
+];
+
 const PACKS = [
   {
     name: 'Starter',
@@ -139,6 +164,50 @@ export default function Pricing() {
             <span>🎁</span>
             <p>New here? Try the tool completely free — <strong>1 full generation included</strong>. No card, no signup.</p>
             <Link to="/tool">Generate now →</Link>
+          </div>
+        </div>
+      </section>
+
+      {/* A+ Listing Pricing */}
+      <section className="p-aplus-section">
+        <div className="p-packs-inner">
+          <div className="p-aplus-heading">
+            <div className="p-aplus-icon">✦</div>
+            <div>
+              <h2 className="p-aplus-title">Amazon A+ Content</h2>
+              <p className="p-aplus-sub">5 module images + copy text. All at exact Amazon dimensions. Requires Amazon Brand Registry.</p>
+            </div>
+          </div>
+          <div className="p-packs-grid">
+            {APLUS_PACKS.map((pack, i) => (
+              <div key={i} className={`p-pack-card ${pack.highlight ? 'p-pack-highlight' : ''}`}>
+                {pack.badge && <div className={`p-pack-badge ${pack.highlight ? 'p-badge-primary' : 'p-badge-secondary'}`}>{pack.badge}</div>}
+                <div className="p-pack-name">{pack.name}</div>
+                <div className="p-pack-products">{pack.desc}</div>
+                <div className="p-pack-price">
+                  <span className="p-price-currency">₹</span>
+                  <span className="p-price-amount">{pack.price.toLocaleString('en-IN')}</span>
+                </div>
+                {pack.perListing && <div className="p-pack-per">₹{pack.perListing}/listing</div>}
+                <div className="p-pack-divider"/>
+                <ul className="p-pack-features">
+                  <li>✓ Brand banner (970×300)</li>
+                  <li>✓ Hero lifestyle (970×600)</li>
+                  <li>✓ 3× feature cards (300×300)</li>
+                  <li>✓ AI-written copy for each module</li>
+                </ul>
+                <Link
+                  to="/aplus"
+                  className={`p-pack-cta ${pack.highlight ? 'p-cta-primary' : 'p-cta-secondary'}`}
+                >
+                  {pack.highlight ? 'Get Bundle Deal →' : 'Get Started →'}
+                </Link>
+              </div>
+            ))}
+          </div>
+          <div className="p-aplus-note">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            <span>Bundle pricing applies when you generate photos + A+ content for the same product. <Link to="/tool">Generate photos first →</Link></span>
           </div>
         </div>
       </section>

@@ -41,6 +41,13 @@ const FEATURES = [
     color: '#f0f6ff',
     accent: '#3b82f6',
   },
+  {
+    icon: '✦',
+    title: 'A+ Listing assets built to Amazon spec',
+    desc: 'Banner (970×300), hero (970×600), and three feature cards (300×300) — all generated at exact Amazon A+ dimensions with text baked in. Upload directly to A+ Content Manager.',
+    color: '#fff8f0',
+    accent: '#f59e0b',
+  },
 ];
 
 const HIGHLIGHTS = [
@@ -172,6 +179,13 @@ export default function Landing() {
             <span>SellerStudio</span>
           </div>
           <div className="l-nav-links">
+            <div className="l-nav-dropdown">
+              <button className="l-nav-dropdown-trigger">Tools ▾</button>
+              <div className="l-nav-dropdown-menu">
+                <Link to="/tool">🖼 Image + Copy Generator</Link>
+                <Link to="/aplus">✦ A+ Listing Generator</Link>
+              </div>
+            </div>
             <Link to="/pricing">Pricing</Link>
             {user ? (
               <Link to="/dashboard">Dashboard</Link>
@@ -186,24 +200,23 @@ export default function Landing() {
       {/* ── Hero ── */}
       <section className="l-hero">
         <div className="l-hero-content">
-          <div className="l-hero-badge">Built for Amazon · Flipkart · Meesho sellers</div>
+          <div className="l-hero-badge">The Complete Amazon Seller Toolkit</div>
           <h1 className="l-hero-headline">
-            Your Products Deserve<br />
-            <span className="l-gradient-text">Professional Photos.</span><br />
-            Your Budget Disagrees.
+            Everything Your Listing<br />
+            <span className="l-gradient-text">Needs. Done in Minutes.</span>
           </h1>
           <p className="l-hero-sub">
-            Upload any raw product image — even a phone photo — and get{' '}
-            <strong>8 catalog-ready images</strong> in minutes. Studio shots. Lifestyle shots.
-            Zero photoshoot cost.
+            Professional product photos, AI-written bullet points, and{' '}
+            <strong>Amazon A+ content</strong> — all from a single upload.
+            No designer. No copywriter. No photographer.
           </p>
           <div className="l-hero-actions">
             <Link to="/tool" className="l-btn-primary l-btn-glow">
-              Try it Free — 1 generation on us
+              Start Free — No Card Needed →
             </Link>
-            <Link to="/pricing" className="l-btn-ghost">See pricing →</Link>
+            <Link to="/aplus" className="l-btn-ghost">Try A+ Generator →</Link>
           </div>
-          <p className="l-hero-footnote">Takes ~4 minutes · ₹99/product after free trial</p>
+          <p className="l-hero-footnote">Product images · Bullet Points · A+ Content · ₹99/product onwards</p>
         </div>
 
         {/* Browser-style mockup */}
@@ -265,7 +278,7 @@ export default function Landing() {
         <div className="l-section-inner">
           <div className="l-eyebrow reveal">Why SellerStudio</div>
           <h2 className="l-section-title reveal">
-            Everything you need to win on marketplace listings
+            One platform. Every tool your listing needs.
           </h2>
           <div className="l-features-2x2">
             {FEATURES.map((f, i) => (
@@ -522,12 +535,17 @@ export default function Landing() {
 
       {/* ── Final CTA ── */}
       <section className="l-final-cta">
-        <div className="l-cta-box">
-          <h2 className="reveal">Ready to transform your listings?</h2>
-          <p className="reveal">Your first generation is completely free. No card. No signup.</p>
-          <Link to="/tool" className="l-btn-primary l-btn-large l-btn-glow reveal">
-            Generate My Product Images →
-          </Link>
+        <div className="l-cta-box reveal">
+          <h2>Your complete listing toolkit — start free.</h2>
+          <p>Product images, bullet points, and A+ content. First generation on us. No card.</p>
+          <div className="l-cta-action-row">
+            <Link to="/tool" className="l-btn-primary l-btn-large l-btn-glow">
+              Generate Images Free →
+            </Link>
+            <Link to="/aplus" className="l-btn-cta-secondary">
+              Try A+ Generator →
+            </Link>
+          </div>
         </div>
       </section>
 
@@ -539,8 +557,9 @@ export default function Landing() {
             <span>SellerStudio</span>
           </div>
           <div className="l-footer-links">
+            <Link to="/tool">Image Generator</Link>
+            <Link to="/aplus">A+ Listing</Link>
             <Link to="/pricing">Pricing</Link>
-            <Link to="/tool">Try Free</Link>
             {user ? (
               <Link to="/dashboard">Dashboard</Link>
             ) : (
